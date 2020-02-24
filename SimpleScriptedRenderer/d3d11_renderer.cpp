@@ -4,7 +4,7 @@
 void d3d11_renderer::init(HWND hwnd)
 {
   my_assert(hwnd);
-  this->hwnd = hwnd;
+  m_hwnd = hwnd;
 
   i32 width, height;
   {

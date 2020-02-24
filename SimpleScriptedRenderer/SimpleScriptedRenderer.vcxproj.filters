@@ -1,9 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="src\application.cpp" />
-    <ClCompile Include="src\input.cpp" />
-    <ClCompile Include="src\main.cpp" />
     <ClCompile Include="external\imgui\imgui.cpp">
       <Filter>external\imgui</Filter>
     </ClCompile>
@@ -22,25 +19,27 @@
     <ClCompile Include="external\imgui\imgui_widgets.cpp">
       <Filter>external\imgui</Filter>
     </ClCompile>
-    <ClCompile Include="src\my_assert.cpp">
+    <ClCompile Include="my_assert.cpp">
       <Filter>my</Filter>
     </ClCompile>
-    <ClCompile Include="src\my_new.cpp">
+    <ClCompile Include="my_new.cpp">
       <Filter>my</Filter>
     </ClCompile>
-    <ClCompile Include="src\ring_buffer.cpp">
+    <ClCompile Include="ring_buffer.cpp">
       <Filter>my</Filter>
     </ClCompile>
-    <ClCompile Include="src\static_string.cpp">
+    <ClCompile Include="static_string.cpp">
       <Filter>my</Filter>
     </ClCompile>
-    <ClCompile Include="src\d3d11_renderer.cpp" />
+    <ClCompile Include="application.cpp" />
+    <ClCompile Include="d3d11_renderer.cpp" />
+    <ClCompile Include="input.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="pool.cpp">
+      <Filter>my</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\application.hpp" />
-    <ClInclude Include="src\input.hpp" />
-    <ClInclude Include="src\shader_bytecodes.h" />
-    <ClInclude Include="src\types.hpp" />
     <ClInclude Include="external\imgui\imconfig.h">
       <Filter>external\imgui</Filter>
     </ClInclude>
@@ -65,22 +64,34 @@
     <ClInclude Include="external\imgui\imstb_truetype.h">
       <Filter>external\imgui</Filter>
     </ClInclude>
-    <ClInclude Include="src\my_assert.hpp">
+    <ClInclude Include="my_assert.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="src\my_new.hpp">
+    <ClInclude Include="my_new.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="src\my_vector.hpp">
+    <ClInclude Include="my_vector.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="src\ring_buffer.hpp">
+    <ClInclude Include="ring_buffer.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="src\static_string.hpp">
+    <ClInclude Include="static_string.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="src\d3d11_renderer.hpp" />
+    <ClInclude Include="types.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
+    <ClInclude Include="application.hpp" />
+    <ClInclude Include="d3d11_renderer.hpp" />
+    <ClInclude Include="input.hpp" />
+    <ClInclude Include="shader_bytecodes.h" />
+    <ClInclude Include="static_vector.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
+    <ClInclude Include="pool.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="external">
@@ -95,6 +106,9 @@
     <Filter Include="bin">
       <UniqueIdentifier>{6626f9ca-355a-49a3-9795-ddb26b4acbc9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="shaders">
+      <UniqueIdentifier>{1aca27b0-bafc-40da-b56a-23e13e91c9ae}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="external\lua\lib\lua.dll">
@@ -103,5 +117,13 @@
     <CopyFileToFolders Include="external\SDL2\lib\SDL2.dll">
       <Filter>bin</Filter>
     </CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="vs.hlsl">
+      <Filter>shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="ps.hlsl">
+      <Filter>shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

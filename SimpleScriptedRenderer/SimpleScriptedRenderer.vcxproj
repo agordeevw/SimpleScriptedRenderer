@@ -19,22 +19,25 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="application.cpp" />
+    <ClCompile Include="d3d11_renderer.cpp" />
     <ClCompile Include="external\imgui\imgui.cpp" />
     <ClCompile Include="external\imgui\imgui_demo.cpp" />
     <ClCompile Include="external\imgui\imgui_draw.cpp" />
     <ClCompile Include="external\imgui\imgui_impl_dx11.cpp" />
     <ClCompile Include="external\imgui\imgui_impl_sdl.cpp" />
     <ClCompile Include="external\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="src\application.cpp" />
-    <ClCompile Include="src\d3d11_renderer.cpp" />
-    <ClCompile Include="src\input.cpp" />
-    <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\my_assert.cpp" />
-    <ClCompile Include="src\my_new.cpp" />
-    <ClCompile Include="src\ring_buffer.cpp" />
-    <ClCompile Include="src\static_string.cpp" />
+    <ClCompile Include="input.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="my_assert.cpp" />
+    <ClCompile Include="my_new.cpp" />
+    <ClCompile Include="pool.cpp" />
+    <ClCompile Include="ring_buffer.cpp" />
+    <ClCompile Include="static_string.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="application.hpp" />
+    <ClInclude Include="d3d11_renderer.hpp" />
     <ClInclude Include="external\imgui\imconfig.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imgui_impl_dx11.h" />
@@ -43,16 +46,16 @@
     <ClInclude Include="external\imgui\imstb_rectpack.h" />
     <ClInclude Include="external\imgui\imstb_textedit.h" />
     <ClInclude Include="external\imgui\imstb_truetype.h" />
-    <ClInclude Include="src\application.hpp" />
-    <ClInclude Include="src\d3d11_renderer.hpp" />
-    <ClInclude Include="src\input.hpp" />
-    <ClInclude Include="src\my_assert.hpp" />
-    <ClInclude Include="src\my_new.hpp" />
-    <ClInclude Include="src\my_vector.hpp" />
-    <ClInclude Include="src\ring_buffer.hpp" />
-    <ClInclude Include="src\shader_bytecodes.h" />
-    <ClInclude Include="src\static_string.hpp" />
-    <ClInclude Include="src\types.hpp" />
+    <ClInclude Include="input.hpp" />
+    <ClInclude Include="my_assert.hpp" />
+    <ClInclude Include="my_new.hpp" />
+    <ClInclude Include="my_vector.hpp" />
+    <ClInclude Include="pool.hpp" />
+    <ClInclude Include="ring_buffer.hpp" />
+    <ClInclude Include="shader_bytecodes.h" />
+    <ClInclude Include="static_string.hpp" />
+    <ClInclude Include="static_vector.hpp" />
+    <ClInclude Include="types.hpp" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="external\lua\lib\lua.dll">
@@ -61,6 +64,36 @@
     <CopyFileToFolders Include="external\SDL2\lib\SDL2.dll">
       <FileType>Document</FileType>
     </CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="ps.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ps_bytecode</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ps_bytecode</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ps_bytecode.h</HeaderFileOutput>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ps_bytecode.h</HeaderFileOutput>
+    </FxCompile>
+    <FxCompile Include="vs.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">vs_bytecode</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">vs_bytecode.h</HeaderFileOutput>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">vs_bytecode</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">vs_bytecode.h</HeaderFileOutput>
+    </FxCompile>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
@@ -130,6 +163,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\stb;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\imgui;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4127</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\lib;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -161,6 +195,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\stb;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\imgui;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4127</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>

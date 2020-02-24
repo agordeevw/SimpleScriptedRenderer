@@ -20,11 +20,9 @@ public:
     {
       m_size = range_end - range_begin;
       m_capacity = (u32)((f64)m_size * 1.25);
-      m_data = new char[sizeof(T) * (range_end - range_begin)];
-      for (u32 i = 0; i < m_size; i++)
-      {
-        new(&reinterpret_cast<T*>(m_data)[i], my_operator_new) T{ range_begin[i] };
-      }
+      m_data = new char[sizeof(T) * m_capacity];
+      while (range_begin < range_end)
+        push_back(*range_begin++);
     }
   }
 
@@ -157,9 +155,7 @@ public:
       char* new_data = new char[sizeof(T) * new_capacity];
       u32 sz = m_size;
       for (u32 i = 0; i < sz; i++)
-      {
         new(&reinterpret_cast<T*>(new_data)[i], my_operator_new) T{ static_cast<T&&>(reinterpret_cast<T*>(m_data)[i]) };
-      }
       this->~my_vector();
       m_data = new_data;
       m_size = sz;
@@ -187,7 +183,7 @@ public:
     {
       reserve((m_capacity + 1) * 2);
     }
-    reinterpret_cast<T*>(m_data)[m_size] = value;
+    new(m_data + m_size * sizeof(T), my_operator_new) T{value};
     m_size++;
   }
 
@@ -197,7 +193,7 @@ public:
     {
       reserve((m_capacity + 1) * 2);
     }
-    reinterpret_cast<T*>(m_data)[m_size] = value;
+    new(m_data + m_size * sizeof(T), my_operator_new) T{value};
     m_size++;
   }
 

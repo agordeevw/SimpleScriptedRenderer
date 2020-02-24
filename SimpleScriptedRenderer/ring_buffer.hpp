@@ -44,6 +44,11 @@ public:
   {
   }
 
+  ~ring_buffer()
+  {
+    clear();
+  }
+
   u32 size() const
   {
     return static_cast<detail::ring_buffer_base const&>(*this).size();

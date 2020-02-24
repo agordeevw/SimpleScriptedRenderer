@@ -8,7 +8,7 @@ using com_ptr = Microsoft::WRL::ComPtr<T>;
 
 struct d3d11_renderer
 {
-  HWND hwnd;
+  HWND m_hwnd;
   com_ptr<ID3D11Device> device;
   DXGI_FORMAT swapchain_format = DXGI_FORMAT_R8G8B8A8_UNORM;
   u32 swapchain_width;
