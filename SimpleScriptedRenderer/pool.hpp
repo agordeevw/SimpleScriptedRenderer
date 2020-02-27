@@ -39,6 +39,7 @@ public:
   void* alloc_helper()
   {
     my_assert(m_size < m_capacity);
+    m_size++;
     char* slot = m_data + m_free_slot * slot_size();
     m_free_slot = *reinterpret_cast<u32*>(slot);
     *reinterpret_cast<u32*>(slot) = (u32)-1;
@@ -54,6 +55,7 @@ public:
     const u32 slot_idx = (u32)((slot - m_data) / slot_size());
     my_assert(slot == m_data + m_obj_size * slot_idx);
 
+    m_size--;
     *reinterpret_cast<u32*>(slot) = m_free_slot;
     m_free_slot = slot_idx;
   }

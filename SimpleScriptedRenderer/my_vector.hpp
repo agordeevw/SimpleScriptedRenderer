@@ -16,9 +16,10 @@ public:
 
   my_vector(T const* range_begin, T const* range_end) : my_vector()
   {
+    my_assert(range_begin <= range_end);
     if (range_end != range_begin)
     {
-      m_size = range_end - range_begin;
+      m_size = (u32)(range_end - range_begin);
       m_capacity = (u32)((f64)m_size * 1.25);
       m_data = new char[sizeof(T) * m_capacity];
       while (range_begin < range_end)

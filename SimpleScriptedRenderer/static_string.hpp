@@ -26,6 +26,11 @@ public:
     return m_data;
   }
 
+  char* data()
+  {
+    return m_data;
+  }
+
   u64 capacity() const
   {
     return m_capacity;
@@ -46,22 +51,22 @@ template <u64 t_capacity>
 class static_string : public detail::static_string_base
 {
 public:
-  static_string() : detail::static_string_base{ data, t_capacity }
+  static_string() : detail::static_string_base{ storage, t_capacity }
   {
   }
 
-  static_string(const char* str) : detail::static_string_base{ data, t_capacity, str }
+  static_string(const char* str) : detail::static_string_base{ storage, t_capacity, str }
   {
   }
 
-  static_string(static_string const& other) : detail::static_string_base{ data, t_capacity, other.data }
+  static_string(static_string const& other) : detail::static_string_base{ storage, t_capacity, other.storage }
   {
   }
 
-  static_string(static_string&& other) : detail::static_string_base{ data, t_capacity, other.data }
+  static_string(static_string&& other) : detail::static_string_base{ storage, t_capacity, other.storage }
   {
   }
 
 private:
-  char data[t_capacity];
+  char storage[t_capacity];
 };

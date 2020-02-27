@@ -18,16 +18,28 @@
 #include "shader_bytecodes.h"
 #include "pool.hpp"
 
-static ring_buffer<static_string<512>> g_console_log{ 32 };
-static bool g_console_enabled = false;
-
-static void console_interpret(lua_State* lua, const char* input_buffer)
+namespace console
 {
+static constexpr u32 MAX_ENTRY_SIZE = 512;
+static constexpr u32 MAX_ENTRIES = 64;
+static constexpr u32 MAX_INPUT_LOG_ENTRIES = 64;
+
+static ring_buffer<static_string<MAX_ENTRY_SIZE>> g_log{ MAX_ENTRIES };
+static ring_buffer<static_string<MAX_ENTRY_SIZE>> g_input_log{ MAX_INPUT_LOG_ENTRIES };
+static bool g_active = false;
+static u32 g_current_input_log_entry = 0;
+
+static void interpret(lua_State* lua, const char* input_buffer)
+{
+  if (g_input_log.size() == g_input_log.capacity()) g_input_log.pop_front();
+  g_input_log.push_back({ input_buffer });
+  g_current_input_log_entry = g_input_log.size();
+
   {
-    char console_buffer[1024];
+    char console_buffer[2 * MAX_ENTRY_SIZE];
     sprintf(console_buffer, "> %s", input_buffer);
-    if (g_console_log.size() == g_console_log.capacity()) g_console_log.pop_front();
-    g_console_log.push_back({ console_buffer });
+    if (g_log.size() == g_log.capacity()) g_log.pop_front();
+    g_log.push_back({ console_buffer });
   }
   lua_getglobal(lua, "print");
   int top = lua_gettop(lua);
@@ -41,10 +53,10 @@ static void console_interpret(lua_State* lua, const char* input_buffer)
     if (luaL_dostring(lua, input_buffer))
     {
       // failed completely...
-      char report_buffer[512];
+      char report_buffer[MAX_ENTRY_SIZE];
       sprintf(report_buffer, "error: %s", lua_tostring(lua, -1));
-      if (g_console_log.size() == g_console_log.capacity()) g_console_log.pop_front();
-      g_console_log.push_back({ report_buffer });
+      if (g_log.size() == g_log.capacity()) g_log.pop_front();
+      g_log.push_back({ report_buffer });
       lua_pop(lua, 1);
     }
   }
@@ -56,31 +68,38 @@ static void console_interpret(lua_State* lua, const char* input_buffer)
   }
 }
 
-static int print(lua_State* lua)
+static int imgui_input_callback(ImGuiInputTextCallbackData *data)
 {
-  char text_buffer[512];
-  text_buffer[0] = 0;
-  char* text = text_buffer;
-  const int nargs = lua_gettop(lua);
-  for (int i = 1; i <= nargs; i++)
+  if (g_input_log.size() == 0) return 0;
+  if (data->EventKey == ImGuiKey_UpArrow)
   {
-    const char *s = luaL_tolstring(lua, i, nullptr);
-    my_assert(s);
-    if (i > 1) text += sprintf(text, "\t");
-    text += sprintf(text, "%s", s);
-    lua_pop(lua, 1);
+    if (g_current_input_log_entry == 0) return 0;
+    g_current_input_log_entry--;
   }
-
-  if (g_console_log.size() == g_console_log.capacity()) g_console_log.pop_front();
-  g_console_log.push_back({ text_buffer });
+  else if (data->EventKey == ImGuiKey_DownArrow)
+  {
+    // Behavior is poorly defined, that's why these checks are here...
+    if (g_current_input_log_entry == g_input_log.size()) return 0;
+    if (g_current_input_log_entry == g_input_log.size() - 1) return 0;
+    g_current_input_log_entry++;
+  }
+  const i32 text_length = sprintf(data->Buf, "%s", g_input_log[g_current_input_log_entry].c_str());
+  data->BufDirty = true;
+  data->BufTextLen = text_length;
+  data->CursorPos = text_length;
+  data->SelectionStart = 0;
+  data->SelectionEnd = 0;
   return 0;
 }
+} // namespace console
 
 struct vertex_data
 {
   com_ptr<ID3D11Buffer> data;
   u32 index_data_offset;
   u32 index_count;
+  glm::vec3 aabb_min;
+  glm::vec3 aabb_max;
 };
 
 struct vertex
@@ -92,13 +111,23 @@ struct vertex
 static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex> const& vertices, my_vector<u32> const& indices)
 {
   vertex_data ret;
+  const u32 vertex_array_size = vertices.size() * sizeof(vertices[0]);
+  const u32 index_array_size = indices.size() * sizeof(indices[0]);
 
   my_vector<char> buffer_data;
-  buffer_data.resize(vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(indices[0]));
-  memcpy(buffer_data.data(), vertices.data(), vertices.size() * sizeof(vertices[0]));
-  memcpy(buffer_data.data() + vertices.size() * sizeof(vertices[0]), indices.data(), indices.size() * sizeof(indices[0]));
-  ret.index_data_offset = vertices.size() * sizeof(vertices[0]);
+  buffer_data.resize(vertex_array_size + index_array_size);
+  memcpy(buffer_data.data(), vertices.data(), vertex_array_size);
+  memcpy(buffer_data.data() + vertex_array_size, indices.data(), index_array_size);
+  ret.index_data_offset = vertex_array_size;
   ret.index_count = indices.size();
+
+  ret.aabb_max = vertices[0].position;
+  ret.aabb_min = vertices[0].position;
+  for (u32 i = 0; i < vertices.size(); i++)
+  {
+    ret.aabb_min = glm::min(ret.aabb_min, vertices[i].position);
+    ret.aabb_max = glm::max(ret.aabb_max, vertices[i].position);
+  }
 
   {
     HRESULT hr;
@@ -117,31 +146,106 @@ static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex
   return ret;
 }
 
-static my_vector<vertex_data> vds = {};
+static my_vector<vertex_data> g_vds = {};
 
 static void create_vds(d3d11_renderer& renderer)
 {
-  // A triangle
+  // Triangle
   {
     my_vector<vertex> verts;
     my_vector<u32> indices;
 
-    verts.push_back({ {-1.0f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f} });
-    verts.push_back({ {0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f} });
-    verts.push_back({ {1.0f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f} });
+    verts.push_back({ {-sqrt(3.0f) * 0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, +1.0f} });
+    verts.push_back({ {+0.0f, +sqrt(3.0f) * 0.5f, 0.0f}, {0.0f, 0.0f, +1.0f} });
+    verts.push_back({ {+sqrt(3.0f) * 0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, +1.0f} });
     indices.push_back(0);
     indices.push_back(1);
     indices.push_back(2);
 
-    vds.push_back(create_vertex_data(renderer, verts, indices));
+    g_vds.push_back(create_vertex_data(renderer, verts, indices));
+  }
+  // Cube
+  {
+    my_vector<vertex> verts;
+    my_vector<u32> indices;
+
+    // left side
+    verts.push_back({ {-0.5f, +0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {-0.5f, +0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {-0.5f, -0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f} });
+    indices.push_back(0);
+    indices.push_back(1);
+    indices.push_back(2);
+    indices.push_back(0);
+    indices.push_back(2);
+    indices.push_back(3);
+    // right side
+    verts.push_back({ {+0.5f, +0.5f, +0.5f}, {+1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {+0.5f, +0.5f, -0.5f}, {+1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {+0.5f, -0.5f, -0.5f}, {+1.0f, 0.0f, 0.0f} });
+    verts.push_back({ {+0.5f, -0.5f, +0.5f}, {+1.0f, 0.0f, 0.0f} });
+    indices.push_back(4);
+    indices.push_back(5);
+    indices.push_back(6);
+    indices.push_back(4);
+    indices.push_back(6);
+    indices.push_back(7);
+    // top side
+    verts.push_back({ {-0.5f, +0.5f, -0.5f}, {0.0f, +1.0f, 0.0f} });
+    verts.push_back({ {+0.5f, +0.5f, -0.5f}, {0.0f, +1.0f, 0.0f} });
+    verts.push_back({ {+0.5f, +0.5f, +0.5f}, {0.0f, +1.0f, 0.0f} });
+    verts.push_back({ {-0.5f, +0.5f, +0.5f}, {0.0f, +1.0f, 0.0f} });
+    indices.push_back(8);
+    indices.push_back(9);
+    indices.push_back(10);
+    indices.push_back(8);
+    indices.push_back(10);
+    indices.push_back(11);
+    // bottom side
+    verts.push_back({ {-0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f} });
+    verts.push_back({ {+0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f} });
+    verts.push_back({ {+0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f} });
+    verts.push_back({ {-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f} });
+    indices.push_back(12);
+    indices.push_back(13);
+    indices.push_back(14);
+    indices.push_back(12);
+    indices.push_back(14);
+    indices.push_back(15);
+    // face side
+    verts.push_back({ {-0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, +1.0f} });
+    verts.push_back({ {+0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, +1.0f} });
+    verts.push_back({ {+0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, +1.0f} });
+    verts.push_back({ {-0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, +1.0f} });
+    indices.push_back(16);
+    indices.push_back(17);
+    indices.push_back(18);
+    indices.push_back(16);
+    indices.push_back(18);
+    indices.push_back(19);
+    // back side
+    verts.push_back({ {+0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f} });
+    verts.push_back({ {-0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f} });
+    verts.push_back({ {-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f} });
+    verts.push_back({ {+0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f} });
+    indices.push_back(20);
+    indices.push_back(21);
+    indices.push_back(22);
+    indices.push_back(20);
+    indices.push_back(22);
+    indices.push_back(23);
+
+    g_vds.push_back(create_vertex_data(renderer, verts, indices));
   }
 }
 
 static void destroy_vds()
 {
-  vds = my_vector<vertex_data>{};
+  g_vds = my_vector<vertex_data>{};
 }
 
+// Buffer filled once each frame.
 struct scene_constants
 {
   glm::mat4x4 world_to_screen;
@@ -153,6 +257,7 @@ struct scene_constants
   f32 _pad2;
 };
 
+// Buffer filled for each object/material?
 struct object_constants
 {
   glm::mat4x4 local_to_world;
@@ -170,7 +275,8 @@ static com_ptr<ID3D11InputLayout> g_input_layout;
 static com_ptr<ID3D11Buffer> g_buf_scene_constants;
 static com_ptr<ID3D11Buffer> g_buf_object_constants;
 static com_ptr<ID3D11BlendState> g_blend_state;
-static com_ptr<ID3D11RasterizerState> g_rasterizer_state;
+static com_ptr<ID3D11RasterizerState> g_rasterizer_state_solid;
+static com_ptr<ID3D11RasterizerState> g_rasterizer_state_wireframe;
 static com_ptr<ID3D11DepthStencilState> g_depth_stencil_state;
 
 static void create_common_pipeline_objects(d3d11_renderer& renderer)
@@ -228,7 +334,15 @@ static void create_common_pipeline_objects(d3d11_renderer& renderer)
     D3D11_RASTERIZER_DESC desc = {};
     desc.FillMode = D3D11_FILL_SOLID;
     desc.CullMode = D3D11_CULL_BACK;
-    hr = renderer.device->CreateRasterizerState(&desc, g_rasterizer_state.ReleaseAndGetAddressOf());
+    hr = renderer.device->CreateRasterizerState(&desc, g_rasterizer_state_solid.ReleaseAndGetAddressOf());
+    my_assert(SUCCEEDED(hr));
+  }
+
+  {
+    D3D11_RASTERIZER_DESC desc = {};
+    desc.FillMode = D3D11_FILL_WIREFRAME;
+    desc.CullMode = D3D11_CULL_NONE;
+    hr = renderer.device->CreateRasterizerState(&desc, g_rasterizer_state_wireframe.ReleaseAndGetAddressOf());
     my_assert(SUCCEEDED(hr));
   }
 
@@ -245,7 +359,7 @@ static void create_common_pipeline_objects(d3d11_renderer& renderer)
 static void destroy_common_pipeline_objects()
 {
   g_depth_stencil_state.Reset();
-  g_rasterizer_state.Reset();
+  g_rasterizer_state_solid.Reset();
   g_blend_state.Reset();
   g_buf_object_constants.Reset();
   g_buf_scene_constants.Reset();
@@ -256,28 +370,27 @@ static void destroy_common_pipeline_objects()
 
 struct transform
 {
-  glm::vec3 t = {};
-  glm::quat r = glm::identity<glm::quat>();
+  glm::vec3 t = { 0.0f, 0.0f, 0.0f };
+  glm::quat r = { 0.0f, 0.0f, 0.0f, 1.0f };
+  glm::vec3 s = { 1.0f, 1.0f, 1.0f };
 
   glm::mat4x4 local_to_world() const
   {
     glm::mat4x4 m;
-    m[0] = 2.0f * glm::vec4{ r.x * r.x + r.w * r.w - 0.5f, r.x * r.y + r.z * r.w, r.x * r.z - r.y * r.w, 0.0f };
-    m[1] = 2.0f * glm::vec4{ r.y * r.x - r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z - r.x * r.w, 0.0f };
-    m[2] = 2.0f * glm::vec4{ r.z * r.x + r.y * r.w, r.z * r.y - r.x * r.w, r.z * r.z + r.w * r.w - 0.5f, 0.0f };
+    m[0] = s.x * 2.0f * glm::vec4{ r.x * r.x + r.w * r.w - 0.5f, r.x * r.y + r.z * r.w, r.x * r.z - r.y * r.w, 0.0f };
+    m[1] = s.y * 2.0f * glm::vec4{ r.y * r.x - r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z + r.x * r.w, 0.0f };
+    m[2] = s.z * 2.0f * glm::vec4{ r.z * r.x + r.y * r.w, r.z * r.y - r.x * r.w, r.z * r.z + r.w * r.w - 0.5f, 0.0f };
     m[3] = { t.x, t.y, t.z, 1.0f };
     return m;
   }
 
   glm::mat4x4 world_to_local_transposed() const
   {
+    // omit translation because this matrix is used to transform vectors
     glm::mat4x4 m;
-    m[0] = 2.0f * glm::vec4{ r.x * r.x + r.w * r.w - 0.5f, r.x * r.y + r.z * r.w, r.x * r.z - r.y * r.w, 0.0f };
-    m[1] = 2.0f * glm::vec4{ r.y * r.x - r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z - r.x * r.w, 0.0f };
-    m[2] = 2.0f * glm::vec4{ r.z * r.x + r.y * r.w, r.z * r.y - r.x * r.w, r.z * r.z + r.w * r.w - 0.5f, 0.0f };
-    m[0].w = -t.x;
-    m[1].w = -t.y;
-    m[2].w = -t.z;
+    m[0] = (2.0f / s.x) * glm::vec4{ r.x * r.x + r.w * r.w - 0.5f, r.x * r.y + r.z * r.w, r.x * r.z - r.y * r.w, 0.0f };
+    m[1] = (2.0f / s.y) * glm::vec4{ r.y * r.x - r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z + r.x * r.w, 0.0f };
+    m[2] = (2.0f / s.z) * glm::vec4{ r.z * r.x + r.y * r.w, r.z * r.y - r.x * r.w, r.z * r.z + r.w * r.w - 0.5f, 0.0f };
     m[3] = { 0.0f, 0.0f, 0.0f, 1.0f };
     return m;
   }
@@ -291,30 +404,38 @@ struct camera
   float z_far = 80.0f;
   float aspect = 1.0f;
 
-  glm::mat4x4 world_to_screen() const
+  glm::mat4x4 world_to_view() const
   {
     const glm::vec3& t = tr.t;
     const glm::quat& r = tr.r;
-
     glm::mat4x4 m;
     m[0] = 2.0f * glm::vec4{ r.x * r.x + r.w * r.w - 0.5f, r.x * r.y - r.z * r.w, r.x * r.z + r.y * r.w, 0.0f };
-    m[1] = 2.0f * glm::vec4{ r.y * r.x + r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z + r.x * r.w, 0.0f };
+    m[1] = 2.0f * glm::vec4{ r.y * r.x + r.z * r.w, r.y * r.y + r.w * r.w - 0.5f, r.y * r.z - r.x * r.w, 0.0f };
     m[2] = 2.0f * glm::vec4{ r.z * r.x - r.y * r.w, r.z * r.y + r.x * r.w, r.z * r.z + r.w * r.w - 0.5f, 0.0f };
-    m[3] = { 
+    m[3] = {
       -(m[0][0] * t.x + m[1][0] * t.y + m[2][0] * t.z),
       -(m[0][1] * t.x + m[1][1] * t.y + m[2][1] * t.z),
       -(m[0][2] * t.x + m[1][2] * t.y + m[2][2] * t.z),
       1.0f };
+    return m;
+  }
 
-    const f32 s = 1.0f / tan(glm::radians(fov_degrees) * 0.5f);
+  glm::mat4x4 view_to_screen() const
+  {
+    const f32 h = 1.0f / tan(glm::radians(fov_degrees) * 0.5f);
     const f32 f = z_far / (z_near - z_far);
     glm::mat4x4 p = {};
-    p[0][0] = s / aspect;
-    p[1][1] = s;
+    p[0][0] = h / aspect;
+    p[1][1] = h;
     p[2][2] = f;
     p[2][3] = -1.0f;
     p[3][2] = z_near * f;
-    return p * m;
+    return p;
+  }
+
+  glm::mat4x4 world_to_screen() const
+  {
+    return view_to_screen() * world_to_view();
   }
 };
 
@@ -322,20 +443,69 @@ struct entity
 {
   static_string<32> name = {};
   transform tr = {};
-  vertex_data vd;
+  const vertex_data* vd = nullptr;
   glm::vec3 color = { 0.5f, 0.8f, 0.5f };
   entity* parent = nullptr;
-  static_vector<entity*, 4> children = {};
 };
+
+static bool is_visible(const camera& cam, const vertex_data& vd, const transform& tr)
+{
+  glm::vec3 aabb_min = vd.aabb_min;
+  glm::vec3 aabb_max = vd.aabb_max;
+  glm::vec4 aabb_verts[8]
+  {
+    {aabb_min.x, aabb_min.y, aabb_min.z, 1.0f},
+    {aabb_min.x, aabb_min.y, aabb_max.z, 1.0f},
+    {aabb_min.x, aabb_max.y, aabb_min.z, 1.0f},
+    {aabb_min.x, aabb_max.y, aabb_max.z, 1.0f},
+    {aabb_max.x, aabb_min.y, aabb_min.z, 1.0f},
+    {aabb_max.x, aabb_min.y, aabb_max.z, 1.0f},
+    {aabb_max.x, aabb_max.y, aabb_min.z, 1.0f},
+    {aabb_max.x, aabb_max.y, aabb_max.z, 1.0f},
+  };
+
+  {
+    const glm::mat4x4 tr_mat = cam.world_to_view() * tr.local_to_world();
+    for (i32 i = 0; i < 8; i++)
+      aabb_verts[i] = tr_mat * aabb_verts[i];
+  }
+  const f32 t = tan(glm::radians(cam.fov_degrees) * 0.5f);
+  const f32 a = cam.aspect;
+  const glm::vec4 frustum[6]
+  {
+    {0.0f, 0.0f, +1.0f, -cam.z_near},
+    {0.0f, 0.0f, -1.0f, -cam.z_far},
+    {+1.0f, 0.0f, a * t, 0.0f},
+    {-1.0f, 0.0f, a * t, 0.0f},
+    {0.0f, +1.0f, t, 0.0f},
+    {0.0f, -1.0f, t, 0.0f},
+  };
+  for (i32 plane = 0; plane < 6; plane++)
+  {
+    int i = 0;
+    int o = 0;
+    for (i32 vert = 0; vert < 8 && (i == 0 || o == 0); vert++)
+    {
+      const glm::vec4& v = aabb_verts[vert];
+      const glm::vec4& p = frustum[plane];
+      int d = v.x * p.x + v.y * p.y + v.z * p.z > -p.w;
+      o |= d;
+      i |= !d;
+    }
+    if (!i) return false;
+    if (o) return true;
+  }
+  return true;
+}
 
 struct scene
 {
   glm::vec3 light_dir = glm::normalize(glm::vec3{ 1.0f, 1.0f, 1.0f });
   glm::vec3 light_color = glm::vec3{ 1.0f, 1.0f, 1.0f };
-  glm::vec3 ambient_color = glm::vec3{ 0.2f, 0.2f, 0.2f };
+  glm::vec3 ambient_color = glm::vec3{ 0.05f, 0.05f, 0.05f };
   camera cam = {};
   my_vector<entity*> entities;
-  pool<entity> entity_pool = { 256 };
+  pool<entity> entity_pool = { 1024 * 1024 };
 };
 
 static void render_scene(d3d11_renderer& renderer, const scene& sc,
@@ -359,17 +529,21 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
   for (u32 i = 0; i < sc.entities.size(); i++)
   {
     entity* e = sc.entities[i];
-    transform tr = e->tr;
+    if (e->vd == nullptr || is_visible(sc.cam, *e->vd, e->tr) == false)
+      continue;
+    glm::mat4x4 ltw = e->tr.local_to_world();
+    glm::mat4x4 wtlt = e->tr.world_to_local_transposed();
     {
       entity* pe = e->parent;
       while (pe)
       {
-        tr.r = pe->tr.r * tr.r;
-        tr.t = pe->tr.t + pe->tr.r * tr.t;
+        ltw = pe->tr.local_to_world() * ltw;
+        wtlt = pe->tr.world_to_local_transposed() * wtlt;
+        pe = pe->parent;
       }
     }
-    g_object_constants.local_to_world = tr.local_to_world();
-    g_object_constants.world_to_local_transposed = tr.world_to_local_transposed();
+    g_object_constants.local_to_world = ltw;
+    g_object_constants.world_to_local_transposed = wtlt;
     g_object_constants.object_color = e->color;
     {
       D3D11_MAPPED_SUBRESOURCE mapped;
@@ -379,8 +553,8 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
     }
     u32 stride = sizeof(vertex);
     u32 offset = 0;
-    renderer.ctx->IASetVertexBuffers(0, 1, e->vd.data.GetAddressOf(), &stride, &offset);
-    renderer.ctx->IASetIndexBuffer(e->vd.data.Get(), DXGI_FORMAT_R32_UINT, e->vd.index_data_offset);
+    renderer.ctx->IASetVertexBuffers(0, 1, e->vd->data.GetAddressOf(), &stride, &offset);
+    renderer.ctx->IASetIndexBuffer(e->vd->data.Get(), DXGI_FORMAT_R32_UINT, e->vd->index_data_offset);
     renderer.ctx->IASetInputLayout(g_input_layout.Get());
     renderer.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     renderer.ctx->VSSetShader(g_vs.Get(), nullptr, 0);
@@ -389,7 +563,7 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
     renderer.ctx->PSSetShader(g_ps.Get(), nullptr, 0);
     renderer.ctx->PSSetConstantBuffers(0, 1, g_buf_scene_constants.GetAddressOf());
     renderer.ctx->PSSetConstantBuffers(1, 1, g_buf_object_constants.GetAddressOf());
-    renderer.ctx->RSSetState(g_rasterizer_state.Get());
+    renderer.ctx->RSSetState(g_rasterizer_state_solid.Get());
     D3D11_VIEWPORT vp = {};
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
@@ -398,11 +572,75 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
     vp.Width = viewport_size.x;
     vp.Height = viewport_size.y;
     renderer.ctx->RSSetViewports(1, &vp);
-    renderer.ctx->DrawIndexed(e->vd.index_count, 0, 0);
+    renderer.ctx->DrawIndexed(e->vd->index_count, 0, 0);
   }
 }
 
 static scene g_scene = {};
+
+static void setup_scene(scene& sc)
+{
+  sc.light_dir = glm::normalize(glm::vec3{ 1.0f, 0.5f, 0.75f });
+  sc.cam.tr.t = { 0.0f, 0.0f, 24.0f };
+  const f32 r = 8.0f;
+  const f32 s = 1.0f;
+  for (f32 x = -r; x <= r; x += s)
+  {
+    for (f32 y = -r; y <= r; y += s)
+    {
+      for (f32 z = -r; z <= r; z += s)
+      {
+        if (sc.entity_pool.size() == sc.entity_pool.capacity())
+        {
+          return;
+        }
+        sc.entities.push_back(sc.entity_pool.alloc());
+        entity* e = sc.entities.back();
+        e->vd = &g_vds[1];
+        e->tr.t.x = x;
+        e->tr.t.y = y;
+        e->tr.t.z = z;
+        e->tr.s.x = 0.5f;
+        e->tr.s.y = 0.5f;
+        e->tr.s.z = 0.5f;
+        e->color.x = (x + r) / (r * 2.0f);
+        e->color.y = (y + r) / (r * 2.0f);
+        e->color.z = (z + r) / (r * 2.0f);
+      }
+    }
+  }
+}
+
+static int luaexport_print(lua_State* lua)
+{
+  char text_buffer[console::MAX_ENTRY_SIZE];
+  text_buffer[0] = 0;
+  char* text = text_buffer;
+  const int nargs = lua_gettop(lua);
+  for (int i = 1; i <= nargs; i++)
+  {
+    const char *s = luaL_tolstring(lua, i, nullptr);
+    my_assert(s);
+    if (i > 1) text += sprintf(text, "\t");
+    text += sprintf(text, "%s", s);
+    lua_pop(lua, 1);
+  }
+
+  if (console::g_log.size() == console::g_log.capacity()) console::g_log.pop_front();
+  console::g_log.push_back({ text_buffer });
+  return 0;
+}
+
+static void setup_lua(lua_State** pLua)
+{
+  *pLua = luaL_newstate();
+  lua_State* lua = *pLua;
+  luaL_openlibs(lua);
+  lua_pushglobaltable(lua);
+  lua_pushcfunction(lua, luaexport_print);
+  lua_setfield(lua, -2, "print");
+  lua_pop(lua, 1);
+}
 
 application::application(SDL_Window* window) :
   m_window{ window }
@@ -422,39 +660,9 @@ application::application(SDL_Window* window) :
   create_vds(renderer);
   create_common_pipeline_objects(renderer);
 
-  lua = luaL_newstate();
-  lua_pushglobaltable(lua);
-  lua_pushcfunction(lua, print);
-  lua_setfield(lua, -2, "print");
-  lua_pop(lua, 1);
+  setup_lua(&lua);
 
-  g_scene.cam.tr.t = { 0.0f, 0.0f, 7.0f };
-  {
-    g_scene.entities.push_back(g_scene.entity_pool.alloc());
-    g_scene.entities.back()->vd = vds[0];
-    g_scene.entities.back()->tr.t = { 2.0f, 0.0f, 0.0f };
-    g_scene.entities.back()->color = { 1.0f, 0.0f, 0.0f };
-  }
-  {
-    g_scene.entities.push_back(g_scene.entity_pool.alloc());
-    g_scene.entities.back()->vd = vds[0];
-    g_scene.entities.back()->tr.t = { 1.5f, 1.5f, 0.0f };
-    g_scene.entities.back()->tr.r =
-      glm::angleAxis(-3.141592f * 0.25f, glm::normalize(glm::vec3{ 1.0f, 0.0f, 0.0f }));
-    g_scene.entities.back()->color = { 1.0f, 0.0f, 0.0f };
-  }
-  {
-    g_scene.entities.push_back(g_scene.entity_pool.alloc());
-    g_scene.entities.back()->vd = vds[0];
-    g_scene.entities.back()->tr.t = { 0.0f, 2.0f, 0.0f };
-    g_scene.entities.back()->color = { 0.0f, 1.0f, 0.0f };
-  }
-  {
-    g_scene.entities.push_back(g_scene.entity_pool.alloc());
-    g_scene.entities.back()->vd = vds[0];
-    g_scene.entities.back()->tr.t = { 0.0f, 0.0f, 2.0f };
-    g_scene.entities.back()->color = { 0.0f, 0.0f, 1.0f };
-  }
+  setup_scene(g_scene);
 }
 
 application::~application()
@@ -471,6 +679,10 @@ application::~application()
   renderer.shutdown();
 }
 
+static i32 g_mouse_dx = 0;
+static i32 g_mouse_dy = 0;
+static i32 g_vsync = 0;
+
 void application::main_loop()
 {
   f64 previous_time = (f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency();
@@ -485,6 +697,8 @@ void application::main_loop()
 
     const f64 delta_time = elapsed_time;
     m_input.update();
+    g_mouse_dx = 0;
+    g_mouse_dy = 0;
 
     SDL_Event event;
     while (SDL_PollEvent(&event))
@@ -501,6 +715,11 @@ void application::main_loop()
           resize();
         }
       }
+      else if (event.type == SDL_MOUSEMOTION)
+      {
+        g_mouse_dx = event.motion.xrel;
+        g_mouse_dy = event.motion.yrel;
+      }
     }
 
     int updates_left = 2;
@@ -512,30 +731,34 @@ void application::main_loop()
       if (updates_left == 0) break;
     }
 
-    {
-      ImGui_ImplDX11_NewFrame();
-      ImGui_ImplSDL2_NewFrame(m_window);
-      ImGui::NewFrame();
-      update(delta_time);
-    }
+    update(delta_time);
 
-    {
-      ImGui::Render();
-      render();
-      ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    }
+    render();
 
-    constexpr bool d3d11_vsync = true;
-    if (d3d11_vsync)
+    constexpr int vsync_disabled = 0;
+    constexpr int vsync_d3d11 = 1;
+    constexpr int vsync_my = 2;
+    switch (g_vsync)
     {
-      renderer.swapchain->Present(1, 0);
-    }
-    else
-    {
-      if (elapsed_time < seconds_per_frame)
+      case vsync_d3d11:
       {
-        u32 delay_ms = (u32)((seconds_per_frame - elapsed_time) * 1000.0);
-        SDL_Delay(delay_ms);
+        renderer.swapchain->Present(1, 0);
+        break;
+      }
+      case vsync_my:
+      {
+        if (elapsed_time < seconds_per_frame)
+        {
+          u32 delay_ms = (u32)((seconds_per_frame - elapsed_time) * 1000.0);
+          SDL_Delay(delay_ms);
+        }
+        renderer.swapchain->Present(0, 0);
+      }
+      case vsync_disabled:
+      default:
+      {
+        renderer.swapchain->Present(0, 0);
+        break;
       }
     }
   }
@@ -548,57 +771,128 @@ void application::resize()
   renderer.resize_swapchain(width, height);
 }
 
+static f32 g_mouse_angle_x = 0.0f;
+static f32 g_mouse_angle_y = 0.0f;
+static bool g_camera_controls_active = false;
+
 // Draw ImGUI here.
 void application::update(f64 delta_time)
 {
-  g_scene.entities[0]->tr.r *=
-    glm::angleAxis(4.0f * (f32)delta_time, glm::vec3{ 0.0f, 0.0f, 1.0f });
-  g_scene.entities[1]->tr.r *=
-    glm::angleAxis(4.0f * (f32)delta_time, glm::normalize(glm::vec3{ 0.0f, 0.0f, 1.0f }));
+  if (g_camera_controls_active)
+  {
+    glm::vec3 cam_forward = g_scene.cam.tr.r * glm::vec3{ 0.0f, 0.0f, -1.0f };
+    glm::vec3 cam_right = g_scene.cam.tr.r * glm::vec3{ 1.0f, 0.0f, 0.0f };
+    const u8* keys = SDL_GetKeyboardState(nullptr);
+    if (keys[SDL_SCANCODE_W])
+      g_scene.cam.tr.t += 4.0f * cam_forward * (f32)delta_time;
+    if (keys[SDL_SCANCODE_S])
+      g_scene.cam.tr.t -= 4.0f * cam_forward * (f32)delta_time;
+    if (keys[SDL_SCANCODE_D])
+      g_scene.cam.tr.t += 4.0f * cam_right * (f32)delta_time;
+    if (keys[SDL_SCANCODE_A])
+      g_scene.cam.tr.t -= 4.0f * cam_right * (f32)delta_time;
+
+    g_mouse_angle_x += g_mouse_dx * 0.00125f;
+    g_mouse_angle_y += g_mouse_dy * 0.00125f;
+    g_mouse_angle_y = glm::clamp(g_mouse_angle_y, -glm::pi<f32>() * 0.25f, glm::pi<f32>() * 0.25f);
+  }
+  g_scene.cam.tr.r = glm::angleAxis(g_mouse_angle_x, glm::vec3{ 0.0f, -1.0f, 0.0f })
+    * glm::angleAxis(g_mouse_angle_y, glm::vec3{ -1.0f, 0.0f, 0.0f });
 
   if (m_input.key_pressed(SDL_SCANCODE_GRAVE))
   {
-    g_console_enabled = !g_console_enabled;
+    console::g_active = !console::g_active;
   }
 
-  ImGuiIO& io = ImGui::GetIO();
-
-  ImGui::SetNextWindowPos({ 0, 0 });
-  ImGui::Begin("Debug", nullptr,
-               ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-  ImGui::Text("Frame time: %5.2lf ms", delta_time * 1000.0);
-  ImGui::End();
-
-  ImGui::Begin("Q", nullptr);
-  ImGui::Text("Q: %.3f %.3f %.3f %.3f",
-              g_scene.entities[0]->tr.r[0],
-              g_scene.entities[0]->tr.r[1],
-              g_scene.entities[0]->tr.r[2],
-              g_scene.entities[0]->tr.r[3]);
-  ImGui::End();
-
-  if (g_console_enabled)
+  if (m_input.key_pressed(SDL_SCANCODE_C))
   {
-    ImGui::SetNextWindowPos({ 0, (f32)renderer.swapchain_height - 300 });
-    ImGui::SetNextWindowSize({ 600, 300 });
-    if (ImGui::Begin("Console", nullptr,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse))
-    {
-      ImGui::SetKeyboardFocusHere();
-      if (ImGui::BeginChild("Console log", { 0, -30 }), true)
-      {
-        for (int i = 0; i < g_console_log.size(); i++)
-          ImGui::TextWrapped("%s", g_console_log[i].c_str());
-      }
-      ImGui::EndChild();
-      char input_buffer[512];
-      input_buffer[0] = 0;
-      if (ImGui::InputText("", input_buffer, sizeof(input_buffer), ImGuiInputTextFlags_EnterReturnsTrue, 0, this))
-      {
-        console_interpret(lua, input_buffer);
-      }
-    }
+    g_camera_controls_active = !g_camera_controls_active;
+    SDL_SetRelativeMouseMode(g_camera_controls_active ? SDL_TRUE : SDL_FALSE);
+  }
+
+  // ImGui
+  {
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplSDL2_NewFrame(m_window);
+    ImGui::NewFrame();
+
+    ImGui::SetNextWindowPos({ 0, 0 });
+    ImGui::Begin("Debug", nullptr,
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    ImGui::Text("Frame time: %5.2lf ms", delta_time * 1000.0);
+    if (ImGui::RadioButton("Vsync: disabled", g_vsync == 0))
+      g_vsync = 0;
+    if (ImGui::RadioButton("Vsync: d3d", g_vsync == 1))
+      g_vsync = 1;
+    if (ImGui::RadioButton("Vsync: my", g_vsync == 2))
+      g_vsync = 2;
     ImGui::End();
+
+    //const f32 entities_window_width = 0.2f * (f32)renderer.swapchain_width;
+    //ImGui::SetNextWindowPos({ (f32)renderer.swapchain_width - entities_window_width, 0 });
+    //ImGui::SetNextWindowSize({ entities_window_width, (f32)renderer.swapchain_height });
+    //ImGui::Begin("Entities", nullptr,
+    //             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    //for (u32 i = 0; i < g_scene.entities.size(); i++)
+    //{
+    //  entity& e = *g_scene.entities[i];
+    //  char name_buffer[console::MAX_ENTRY_SIZE];
+    //  sprintf(name_buffer, "(%u)", i);
+    //  if (ImGui::TreeNode(name_buffer))
+    //  {
+    //    ImGui::InputFloat("tX", &e.tr.t.x);
+    //    ImGui::InputFloat("tY", &e.tr.t.y);
+    //    ImGui::InputFloat("tZ", &e.tr.t.z);
+    //    glm::vec3 euler = glm::degrees(glm::eulerAngles(e.tr.r));
+    //    if (ImGui::InputFloat("rX", &euler.x, 0.0f, 0.0f, "%8.3f")
+    //        | ImGui::InputFloat("rY", &euler.y, 0.0f, 0.0f, "%8.3f")
+    //        | ImGui::InputFloat("rZ", &euler.z, 0.0f, 0.0f, "%8.3f"))
+    //    {
+    //      e.tr.r = glm::quat{ glm::radians(euler) };
+    //    }
+    //    ImGui::InputFloat("sX", &e.tr.s.x);
+    //    ImGui::InputFloat("sY", &e.tr.s.y);
+    //    ImGui::InputFloat("sZ", &e.tr.s.z);
+    //    ImGui::TreePop();
+    //  }
+    //}
+    //ImGui::End();
+
+    if (console::g_active)
+    {
+      static bool g_input_happened = false;
+
+      ImGui::SetNextWindowPos({ 0, (f32)renderer.swapchain_height - 300 });
+      ImGui::SetNextWindowSize({ 600, 300 });
+      if (ImGui::Begin("Console", nullptr,
+                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse))
+      {
+        ImGui::SetKeyboardFocusHere();
+        if (ImGui::BeginChild("Console log", { 0, -30 }, true), true)
+        {
+          for (u32 i = 0; i < console::g_log.size(); i++)
+            ImGui::TextWrapped("%s", console::g_log[i].c_str());
+          if (g_input_happened)
+          {
+            g_input_happened = false;
+            ImGui::SetScrollHereY();
+          }
+        }
+        ImGui::EndChild();
+        char input_buffer[console::MAX_ENTRY_SIZE];
+        input_buffer[0] = 0;
+        if (ImGui::InputText("", input_buffer, sizeof(input_buffer),
+                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory,
+                             console::imgui_input_callback, this))
+        {
+          g_input_happened = true;
+          console::interpret(lua, input_buffer);
+        }
+      }
+      ImGui::End();
+    }
+
+    ImGui::Render();
   }
 }
 
@@ -609,17 +903,16 @@ void application::fixed_update(f64 delta_time)
 
 void application::render()
 {
-  f32 color[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  const f32 color[] = { 0.0f, 0.0f, 0.0f, 1.0f };
   renderer.ctx->ClearRenderTargetView(renderer.swapchain_rtv.Get(), color);
   renderer.ctx->ClearDepthStencilView(renderer.dsv.Get(),
                                       D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
                                       1.0f, 0);
-
-  renderer.ctx->OMSetRenderTargets(1,
-                                   renderer.swapchain_rtv.GetAddressOf(),
+  renderer.ctx->OMSetRenderTargets(1, renderer.swapchain_rtv.GetAddressOf(),
                                    renderer.dsv.Get());
 
   g_scene.cam.aspect = (f32)renderer.swapchain_width / (f32)renderer.swapchain_height;
-  render_scene(renderer, g_scene,
-               { 0, 0 }, { renderer.swapchain_width, renderer.swapchain_height });
+  render_scene(renderer, g_scene, { 0, 0 }, { renderer.swapchain_width, renderer.swapchain_height });
+
+  ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }

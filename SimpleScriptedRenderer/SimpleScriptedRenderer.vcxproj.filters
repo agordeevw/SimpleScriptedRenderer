@@ -109,6 +109,9 @@
     <Filter Include="shaders">
       <UniqueIdentifier>{1aca27b0-bafc-40da-b56a-23e13e91c9ae}</UniqueIdentifier>
     </Filter>
+    <Filter Include="app">
+      <UniqueIdentifier>{971609d8-fd6b-488f-8e90-6abeaf80225e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="external\lua\lib\lua.dll">
