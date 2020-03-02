@@ -361,6 +361,7 @@ static void create_common_pipeline_objects(d3d11_renderer& renderer)
 static void destroy_common_pipeline_objects()
 {
   g_depth_stencil_state.Reset();
+  g_rasterizer_state_wireframe.Reset();
   g_rasterizer_state_solid.Reset();
   g_blend_state.Reset();
   g_buf_object_constants.Reset();
