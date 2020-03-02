@@ -105,10 +105,10 @@ void d3d11_renderer::create_swapchain()
 void d3d11_renderer::resize_swapchain(i32 width, i32 height)
 {
   if (width == 0 || height == 0)
-  {
-    swapchain_desc.BufferDesc.Width = (u32)width;
-    swapchain_desc.BufferDesc.Height = (u32)height;
-  }
+    return;
+
+  swapchain_desc.BufferDesc.Width = (u32)width;
+  swapchain_desc.BufferDesc.Height = (u32)height;
 
   HRESULT hr;
   swapchain_rtv.Reset();

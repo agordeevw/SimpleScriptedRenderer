@@ -98,8 +98,8 @@ struct vertex_data
   com_ptr<ID3D11Buffer> data;
   u32 index_data_offset;
   u32 index_count;
-  glm::vec3 aabb_min;
-  glm::vec3 aabb_max;
+  glm::vec3 aabb_center;
+  glm::vec3 aabb_extent;
 };
 
 struct vertex
@@ -121,13 +121,15 @@ static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex
   ret.index_data_offset = vertex_array_size;
   ret.index_count = indices.size();
 
-  ret.aabb_max = vertices[0].position;
-  ret.aabb_min = vertices[0].position;
+  glm::vec3 aabb_min = vertices[0].position;
+  glm::vec3 aabb_max = vertices[0].position;
   for (u32 i = 0; i < vertices.size(); i++)
   {
-    ret.aabb_min = glm::min(ret.aabb_min, vertices[i].position);
-    ret.aabb_max = glm::max(ret.aabb_max, vertices[i].position);
+    aabb_min = glm::min(aabb_min, vertices[i].position);
+    aabb_max = glm::max(aabb_max, vertices[i].position);
   }
+  ret.aabb_center = 0.5f * (aabb_max + aabb_min);
+  ret.aabb_extent = 0.5f * (aabb_max - aabb_min);
 
   {
     HRESULT hr;
@@ -448,27 +450,38 @@ struct entity
   entity* parent = nullptr;
 };
 
-static bool is_visible(const camera& cam, const vertex_data& vd, const transform& tr)
+static bool aabb_view_frustum_intersection(const camera& cam, const vertex_data& vd, const transform& tr)
 {
-  glm::vec3 aabb_min = vd.aabb_min;
-  glm::vec3 aabb_max = vd.aabb_max;
-  glm::vec4 aabb_verts[8]
+  // Points of AABB
+  // c - center, e - extent
+  // p = c + s * e, where s = {-1, -1, -1} ... {1, 1, 1}
+  // T - local to view transform matrix
+  // T(c+s*e) = T(c) + T(s*e)
+  // T(s*e).x = T.xx * s.x * e.x + T.xy * s.y * e.y + T.xz * s.z * e.z
+  // T(s*e).y = T.yx * s.x * e.x + T.yy * s.y * e.y + T.yz * s.z * e.z
+  // T(s*e).z = T.zx * s.x * e.x + T.zy * s.y * e.y + T.zz * s.z * e.z
+  // let cx = e.x * (T.xx, T.yx, T.zx),
+  // let cy = e.y * (T.xy, T.yy, T.zy),
+  // let cz = e.z * (T.xz, T.yz, T.zz),
+  // then T(s*e) = cx * s.x + cy * s.y + cz * s.z
+  const glm::mat4x4 tr_mat = cam.world_to_view() * tr.local_to_world();
+  const glm::vec4 c = tr_mat * glm::vec4{ vd.aabb_center, 1.0f };
+  const glm::vec4 cx = vd.aabb_extent[0] * tr_mat[0];
+  const glm::vec4 cy = vd.aabb_extent[1] * tr_mat[1];
+  const glm::vec4 cz = vd.aabb_extent[2] * tr_mat[2];
+  const glm::vec4 corners[8]
   {
-    {aabb_min.x, aabb_min.y, aabb_min.z, 1.0f},
-    {aabb_min.x, aabb_min.y, aabb_max.z, 1.0f},
-    {aabb_min.x, aabb_max.y, aabb_min.z, 1.0f},
-    {aabb_min.x, aabb_max.y, aabb_max.z, 1.0f},
-    {aabb_max.x, aabb_min.y, aabb_min.z, 1.0f},
-    {aabb_max.x, aabb_min.y, aabb_max.z, 1.0f},
-    {aabb_max.x, aabb_max.y, aabb_min.z, 1.0f},
-    {aabb_max.x, aabb_max.y, aabb_max.z, 1.0f},
+    c + cx + cy + cz,
+    c + cx + cy - cz,
+    c + cx - cy + cz,
+    c + cx - cy - cz,
+    c - cx + cy + cz,
+    c - cx + cy - cz,
+    c - cx - cy + cz,
+    c - cx - cy - cz,
   };
 
-  {
-    const glm::mat4x4 tr_mat = cam.world_to_view() * tr.local_to_world();
-    for (i32 i = 0; i < 8; i++)
-      aabb_verts[i] = tr_mat * aabb_verts[i];
-  }
+  // Frustum plane normals are pointed outside the view frustum.
   const f32 t = tan(glm::radians(cam.fov_degrees) * 0.5f);
   const f32 a = cam.aspect;
   const glm::vec4 frustum[6]
@@ -486,16 +499,16 @@ static bool is_visible(const camera& cam, const vertex_data& vd, const transform
     int o = 0;
     for (i32 vert = 0; vert < 8 && (i == 0 || o == 0); vert++)
     {
-      const glm::vec4& v = aabb_verts[vert];
+      const glm::vec4& v = corners[vert];
       const glm::vec4& p = frustum[plane];
       int d = v.x * p.x + v.y * p.y + v.z * p.z > -p.w;
       o |= d;
       i |= !d;
     }
-    if (!i) return false;
-    if (o) return true;
+    if (!i) return false; // no points inside the frustum
+    if (o) return true;   // points are on both sides of the frustum plane
   }
-  return true;
+  return true; // all points inside the frustum
 }
 
 struct scene
@@ -507,6 +520,8 @@ struct scene
   my_vector<entity*> entities;
   pool<entity> entity_pool = { 1024 * 1024 };
 };
+
+static u32 g_num_visible = 0;
 
 static void render_scene(d3d11_renderer& renderer, const scene& sc,
                          glm::vec2 viewport_pos, glm::vec2 viewport_size)
@@ -526,11 +541,13 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
   renderer.ctx->OMSetDepthStencilState(g_depth_stencil_state.Get(), 0);
   renderer.ctx->OMSetRenderTargets(1, renderer.swapchain_rtv.GetAddressOf(), renderer.dsv.Get());
 
+  g_num_visible = 0;
   for (u32 i = 0; i < sc.entities.size(); i++)
   {
     entity* e = sc.entities[i];
-    if (e->vd == nullptr || is_visible(sc.cam, *e->vd, e->tr) == false)
+    if (e->vd == nullptr || aabb_view_frustum_intersection(sc.cam, *e->vd, e->tr) == false)
       continue;
+    g_num_visible++;
     glm::mat4x4 ltw = e->tr.local_to_world();
     glm::mat4x4 wtlt = e->tr.world_to_local_transposed();
     {
@@ -598,7 +615,7 @@ static void setup_scene(scene& sc)
   sc.light_dir = glm::normalize(glm::vec3{ 1.0f, 0.5f, 0.75f });
   sc.cam.tr.t = { 0.0f, 0.0f, 24.0f };
   const f32 r = 8.0f;
-  const f32 s = 4.0f;
+  const f32 s = 1.0f;
   for (f32 x = -r; x <= r; x += s)
   {
     for (f32 y = -r; y <= r; y += s)
@@ -615,9 +632,9 @@ static void setup_scene(scene& sc)
         e->tr.t.x = x;
         e->tr.t.y = y;
         e->tr.t.z = z;
-        e->tr.s.x = 2.0f;
-        e->tr.s.y = 2.0f;
-        e->tr.s.z = 2.0f;
+        e->tr.s.x = 0.5f;
+        e->tr.s.y = 0.5f;
+        e->tr.s.z = 0.5f;
         e->color.x = (x + r) / (r * 2.0f);
         e->color.y = (y + r) / (r * 2.0f);
         e->color.z = (z + r) / (r * 2.0f);
@@ -865,6 +882,9 @@ void application::update(f64 delta_time)
     if (ImGui::RadioButton("MS x2", sample_count == 2)) renderer.set_multisample_count(2);
     ImGui::SameLine();
     if (ImGui::RadioButton("MS x4", sample_count == 4)) renderer.set_multisample_count(4);
+
+    ImGui::Text("View frustum culling");
+    ImGui::Text("Visible entities: %u", g_num_visible);
 
     ImGui::End();
 
