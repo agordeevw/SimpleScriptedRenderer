@@ -9,11 +9,9 @@ using com_ptr = Microsoft::WRL::ComPtr<T>;
 struct d3d11_renderer
 {
   HWND m_hwnd;
+  com_ptr<IDXGIFactory> factory;
   com_ptr<ID3D11Device> device;
-  DXGI_FORMAT swapchain_format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  u32 swapchain_width;
-  u32 swapchain_height;
-  u32 swapchain_buffer_count = 2;
+  DXGI_SWAP_CHAIN_DESC swapchain_desc;
   com_ptr<IDXGISwapChain> swapchain;
   com_ptr<ID3D11DeviceContext> ctx;
   com_ptr<ID3D11RenderTargetView> swapchain_rtv;
@@ -24,4 +22,6 @@ struct d3d11_renderer
   void shutdown();
   void create_swapchain();
   void resize_swapchain(i32 width, i32 height);
+  void destroy_swapchain();
+  void set_multisample_count(u32 sample_count);
 };

@@ -578,12 +578,27 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
 
 static scene g_scene = {};
 
+static int luaexport_set_light_dir(lua_State* lua)
+{
+  glm::vec3 dir;
+  dir[0] = (f32)luaL_checknumber(lua, 1);
+  dir[1] = (f32)luaL_checknumber(lua, 2);
+  dir[2] = (f32)luaL_checknumber(lua, 3);
+  if (dir[0] == 0.0f && dir[1] == 0.0f && dir[2] == 0.0f)
+  {
+    lua_pushstring(lua, "nonzero vector expected");
+    return lua_error(lua);
+  }
+  g_scene.light_dir = glm::normalize(dir);
+  return 0;
+}
+
 static void setup_scene(scene& sc)
 {
   sc.light_dir = glm::normalize(glm::vec3{ 1.0f, 0.5f, 0.75f });
   sc.cam.tr.t = { 0.0f, 0.0f, 24.0f };
   const f32 r = 8.0f;
-  const f32 s = 1.0f;
+  const f32 s = 4.0f;
   for (f32 x = -r; x <= r; x += s)
   {
     for (f32 y = -r; y <= r; y += s)
@@ -600,9 +615,9 @@ static void setup_scene(scene& sc)
         e->tr.t.x = x;
         e->tr.t.y = y;
         e->tr.t.z = z;
-        e->tr.s.x = 0.5f;
-        e->tr.s.y = 0.5f;
-        e->tr.s.z = 0.5f;
+        e->tr.s.x = 2.0f;
+        e->tr.s.y = 2.0f;
+        e->tr.s.z = 2.0f;
         e->color.x = (x + r) / (r * 2.0f);
         e->color.y = (y + r) / (r * 2.0f);
         e->color.z = (z + r) / (r * 2.0f);
@@ -620,7 +635,11 @@ static int luaexport_print(lua_State* lua)
   for (int i = 1; i <= nargs; i++)
   {
     const char *s = luaL_tolstring(lua, i, nullptr);
-    my_assert(s);
+    if (s == nullptr)
+    {
+      lua_pushstring(lua, "print: conversion of argument to string failed");
+      lua_error(lua);
+    }
     if (i > 1) text += sprintf(text, "\t");
     text += sprintf(text, "%s", s);
     lua_pop(lua, 1);
@@ -639,6 +658,8 @@ static void setup_lua(lua_State** pLua)
   lua_pushglobaltable(lua);
   lua_pushcfunction(lua, luaexport_print);
   lua_setfield(lua, -2, "print");
+  lua_pushcfunction(lua, luaexport_set_light_dir);
+  lua_setfield(lua, -2, "set_light_dir");
   lua_pop(lua, 1);
 }
 
@@ -704,21 +725,30 @@ void application::main_loop()
     while (SDL_PollEvent(&event))
     {
       ImGui_ImplSDL2_ProcessEvent(&event);
-      if (event.type == SDL_QUIT)
+      switch (event.type)
       {
-        loop_active = false;
-      }
-      else if (event.type == SDL_WINDOWEVENT)
-      {
-        if (event.window.event == SDL_WINDOWEVENT_RESIZED)
+        case SDL_QUIT:
         {
-          resize();
+          return;
         }
-      }
-      else if (event.type == SDL_MOUSEMOTION)
-      {
-        g_mouse_dx = event.motion.xrel;
-        g_mouse_dy = event.motion.yrel;
+        case SDL_WINDOWEVENT:
+        {
+          switch (event.window.event)
+          {
+            case SDL_WINDOWEVENT_RESIZED:
+            {
+              resize();
+              break;
+            }
+          }
+          break;
+        }
+        case SDL_MOUSEMOTION:
+        {
+          g_mouse_dx = event.motion.xrel;
+          g_mouse_dy = event.motion.yrel;
+          break;
+        }
       }
     }
 
@@ -774,6 +804,7 @@ void application::resize()
 static f32 g_mouse_angle_x = 0.0f;
 static f32 g_mouse_angle_y = 0.0f;
 static bool g_camera_controls_active = false;
+static i32 g_selected_entity = (i32)-1;
 
 // Draw ImGUI here.
 void application::update(f64 delta_time)
@@ -820,49 +851,56 @@ void application::update(f64 delta_time)
     ImGui::Begin("Debug", nullptr,
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
     ImGui::Text("Frame time: %5.2lf ms", delta_time * 1000.0);
-    if (ImGui::RadioButton("Vsync: disabled", g_vsync == 0))
-      g_vsync = 0;
-    if (ImGui::RadioButton("Vsync: d3d", g_vsync == 1))
-      g_vsync = 1;
-    if (ImGui::RadioButton("Vsync: my", g_vsync == 2))
-      g_vsync = 2;
+    ImGui::Text("Vsync");
+    if (ImGui::RadioButton("disabled", g_vsync == 0)) g_vsync = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("d3d", g_vsync == 1)) g_vsync = 1;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("my", g_vsync == 2)) g_vsync = 2;
+
+    u32 sample_count = renderer.swapchain_desc.SampleDesc.Count;
+    ImGui::Text("Sample count");
+    if (ImGui::RadioButton("x1", sample_count == 1)) renderer.set_multisample_count(1);
+    ImGui::SameLine();
+    if (ImGui::RadioButton("MS x2", sample_count == 2)) renderer.set_multisample_count(2);
+    ImGui::SameLine();
+    if (ImGui::RadioButton("MS x4", sample_count == 4)) renderer.set_multisample_count(4);
+
     ImGui::End();
 
-    //const f32 entities_window_width = 0.2f * (f32)renderer.swapchain_width;
-    //ImGui::SetNextWindowPos({ (f32)renderer.swapchain_width - entities_window_width, 0 });
-    //ImGui::SetNextWindowSize({ entities_window_width, (f32)renderer.swapchain_height });
-    //ImGui::Begin("Entities", nullptr,
-    //             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-    //for (u32 i = 0; i < g_scene.entities.size(); i++)
-    //{
-    //  entity& e = *g_scene.entities[i];
-    //  char name_buffer[console::MAX_ENTRY_SIZE];
-    //  sprintf(name_buffer, "(%u)", i);
-    //  if (ImGui::TreeNode(name_buffer))
-    //  {
-    //    ImGui::InputFloat("tX", &e.tr.t.x);
-    //    ImGui::InputFloat("tY", &e.tr.t.y);
-    //    ImGui::InputFloat("tZ", &e.tr.t.z);
-    //    glm::vec3 euler = glm::degrees(glm::eulerAngles(e.tr.r));
-    //    if (ImGui::InputFloat("rX", &euler.x, 0.0f, 0.0f, "%8.3f")
-    //        | ImGui::InputFloat("rY", &euler.y, 0.0f, 0.0f, "%8.3f")
-    //        | ImGui::InputFloat("rZ", &euler.z, 0.0f, 0.0f, "%8.3f"))
-    //    {
-    //      e.tr.r = glm::quat{ glm::radians(euler) };
-    //    }
-    //    ImGui::InputFloat("sX", &e.tr.s.x);
-    //    ImGui::InputFloat("sY", &e.tr.s.y);
-    //    ImGui::InputFloat("sZ", &e.tr.s.z);
-    //    ImGui::TreePop();
-    //  }
-    //}
-    //ImGui::End();
+    const f32 entities_window_width = 0.2f * (f32)renderer.swapchain_desc.BufferDesc.Width;
+    ImGui::SetNextWindowPos({ (f32)renderer.swapchain_desc.BufferDesc.Width - entities_window_width, 0 });
+    ImGui::SetNextWindowSize({ entities_window_width, (f32)renderer.swapchain_desc.BufferDesc.Height });
+    ImGui::Begin("Entity", nullptr,
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+    ImGui::InputInt("Entity ID", &g_selected_entity);
+    if (g_selected_entity >= 0 && (u32)g_selected_entity < g_scene.entities.size())
+    {
+      entity& e = *g_scene.entities[g_selected_entity];
+      char name_buffer[console::MAX_ENTRY_SIZE];
+      sprintf(name_buffer, "(%i)", g_selected_entity);
+      ImGui::InputFloat("tX", &e.tr.t.x);
+      ImGui::InputFloat("tY", &e.tr.t.y);
+      ImGui::InputFloat("tZ", &e.tr.t.z);
+      glm::vec3 euler = glm::degrees(glm::eulerAngles(e.tr.r));
+      if (ImGui::InputFloat("rX", &euler.x, 0.0f, 0.0f, "%8.3f")
+          | ImGui::InputFloat("rY", &euler.y, 0.0f, 0.0f, "%8.3f")
+          | ImGui::InputFloat("rZ", &euler.z, 0.0f, 0.0f, "%8.3f"))
+      {
+        e.tr.r = glm::quat{ glm::radians(euler) };
+      }
+      ImGui::InputFloat("sX", &e.tr.s.x);
+      ImGui::InputFloat("sY", &e.tr.s.y);
+      ImGui::InputFloat("sZ", &e.tr.s.z);
+    }
+    ImGui::End();
 
     if (console::g_active)
     {
       static bool g_input_happened = false;
 
-      ImGui::SetNextWindowPos({ 0, (f32)renderer.swapchain_height - 300 });
+      ImGui::SetNextWindowPos({ 0, (f32)renderer.swapchain_desc.BufferDesc.Height - 300 });
       ImGui::SetNextWindowSize({ 600, 300 });
       if (ImGui::Begin("Console", nullptr,
                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse))
@@ -911,8 +949,25 @@ void application::render()
   renderer.ctx->OMSetRenderTargets(1, renderer.swapchain_rtv.GetAddressOf(),
                                    renderer.dsv.Get());
 
-  g_scene.cam.aspect = (f32)renderer.swapchain_width / (f32)renderer.swapchain_height;
-  render_scene(renderer, g_scene, { 0, 0 }, { renderer.swapchain_width, renderer.swapchain_height });
+  g_scene.cam.aspect = (f32)renderer.swapchain_desc.BufferDesc.Width / (f32)renderer.swapchain_desc.BufferDesc.Height;
+  render_scene(renderer, g_scene, { 0, 0 }, { renderer.swapchain_desc.BufferDesc.Width, renderer.swapchain_desc.BufferDesc.Height });
 
   ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
+
+// Things to do next:
+// * Material system mixing PBR and custom shaders. Refer to Unreal Engine ~2013 article.
+// * Support for clustered shading.
+// ** Frustum - light volume intersection.
+// ** List of lights per sub-frustum.
+// * Mesh import + load from/save to internal format.
+// * LOD levels for meshes based on distance to camera.
+// * Animations (skeletal/morph). Interpolation between keyframes. Constant, linear, cubic.
+// * UI.
+// * Scene load/save.
+// ** lua state load/save.
+// *** Function serialization: lua files declare functions/classes (but do not modify environment),
+// *** register them via config files.
+// * Component-system framework.
+// * Editor/play modes.
+// * Different AntiAliasing modes.
