@@ -56,6 +56,7 @@
     <ClInclude Include="static_string.hpp" />
     <ClInclude Include="static_vector.hpp" />
     <ClInclude Include="types.hpp" />
+    <ClInclude Include="util.hpp" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="external\lua\lib\lua.dll">

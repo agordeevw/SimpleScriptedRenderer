@@ -1,5 +1,4 @@
 #pragma once
-#include "application.hpp"
 #include "d3d11_renderer.hpp"
 #include "my_assert.hpp"
 #include "types.hpp"

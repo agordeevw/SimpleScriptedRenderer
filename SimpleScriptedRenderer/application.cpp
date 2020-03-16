@@ -7,16 +7,17 @@
 #include <glm/gtc/quaternion.hpp>
 #pragma warning(pop)
 
-#include "application.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl.h"
 #include "imgui_impl_dx11.h"
+
+#include "application.hpp"
+#include "my_vector.hpp"
+#include "pool.hpp"
 #include "ring_buffer.hpp"
 #include "static_string.hpp"
-#include "my_vector.hpp"
 #include "static_vector.hpp"
 #include "shader_bytecodes.h"
-#include "pool.hpp"
 
 namespace console
 {

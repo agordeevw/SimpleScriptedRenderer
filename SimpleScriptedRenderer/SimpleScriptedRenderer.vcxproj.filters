@@ -92,6 +92,9 @@
     <ClInclude Include="pool.hpp">
       <Filter>my</Filter>
     </ClInclude>
+    <ClInclude Include="util.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="external">
