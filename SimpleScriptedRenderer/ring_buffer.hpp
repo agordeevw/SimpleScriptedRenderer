@@ -69,12 +69,12 @@ public:
 
   void push_back(T const& v)
   {
-    new(push_back_helper(), my_operator_new) T{ v };
+    new(push_back_helper(), placement_new) T{ v };
   }
 
   void push_front(T const& v)
   {
-    new(push_front_helper(), my_operator_new) T{ v };
+    new(push_front_helper(), placement_new) T{ v };
   }
 
   void pop_back()

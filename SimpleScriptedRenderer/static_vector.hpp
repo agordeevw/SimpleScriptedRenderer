@@ -1,6 +1,8 @@
 #pragma once
 #include "my_assert.hpp"
+#include "my_new.hpp"
 #include "types.hpp"
+#include "util.hpp"
 
 template <class T, u32 t_capacity>
 class static_vector
@@ -15,15 +17,18 @@ public:
 
   static_vector(T const* range_begin, T const* range_end) : static_vector()
   {
+    my_assert(range_begin <= range_end);
     while (range_begin < range_end)
       push_back(*range_begin++);
   }
 
-  static_vector(T const* span_begin, u32 span_size) : static_vector(span_begin, span_begin + span_size)
+  static_vector(T const* span_begin, u32 span_size) : static_vector(span_begin,
+                                                                    span_begin + span_size)
   {
   }
 
-  static_vector(static_vector const& other) : static_vector(reinterpret_cast<T const*>(other.m_data), reinterpret_cast<T const*>(other.m_data) + other.m_size)
+  static_vector(static_vector const& other) : static_vector(reinterpret_cast<T const*>(other.m_data),
+                                                            reinterpret_cast<T const*>(other.m_data) + other.m_size)
   {
   }
 
@@ -141,21 +146,20 @@ public:
   void push_back(T const& value)
   {
     my_assert(m_size < t_capacity);
-    reinterpret_cast<T*>(m_data)[m_size] = value;
+    new(m_data + m_size * sizeof(T), placement_new) T{ value };
     m_size++;
   }
 
   void push_back(T&& value)
   {
     my_assert(m_size < t_capacity);
-    reinterpret_cast<T*>(m_data)[m_size] = value;
+    new(m_data + m_size * sizeof(T), placement_new) T{ value };
     m_size++;
   }
 
   void pop_back()
   {
-    my_assert(m_size > 0);
-    reinterpret_cast<T*>(m_data)[m_size - 1].~T();
+    back().~T();
     m_size--;
   }
 
@@ -163,10 +167,15 @@ public:
   {
     my_assert(new_size <= t_capacity);
     while (new_size > m_size)
+    {
       push_back(value);
+    }
     while (m_size > new_size)
+    {
       pop_back();
+    }
   }
+
 private:
   char m_data[sizeof(T) * t_capacity];
   u32 m_size;

@@ -2,65 +2,67 @@
 #include "my_assert.hpp"
 #include "my_new.hpp"
 #include "types.hpp"
+#include "util.hpp"
 
 template <class T>
-class my_vector
+class vector
 {
 public:
   using iterator = T * ;
   using const_iterator = T const*;
 
-  my_vector() : m_data(nullptr), m_size(0), m_capacity(0)
+  vector() : m_data(nullptr), m_size(0), m_capacity(0)
   {
   }
 
-  my_vector(T const* range_begin, T const* range_end) : my_vector()
+  vector(T const* range_begin, T const* range_end) : vector()
   {
     my_assert(range_begin <= range_end);
     if (range_end != range_begin)
     {
-      m_size = (u32)(range_end - range_begin);
-      m_capacity = (u32)((f64)m_size * 1.25);
+      m_capacity = (u32)(((u32)(range_end - range_begin) * 125) / 100);
       m_data = new char[sizeof(T) * m_capacity];
       while (range_begin < range_end)
         push_back(*range_begin++);
     }
   }
 
-  my_vector(T const* span_begin, u32 span_size) : my_vector(span_begin, span_begin + span_size)
+  vector(T const* span_begin, u32 span_size) : vector(span_begin,
+                                                      span_begin + span_size)
   {
   }
 
-  my_vector(my_vector const& other) : my_vector(reinterpret_cast<T const*>(other.m_data), reinterpret_cast<T const*>(other.m_data) + other.m_size)
+  vector(vector const& other) : vector(reinterpret_cast<T const*>(other.m_data),
+                                       reinterpret_cast<T const*>(other.m_data) + other.m_size)
   {
   }
 
-  my_vector(my_vector&& other) : my_vector()
+  vector(vector&& other) : vector()
   {
     swap(other);
   }
 
-  my_vector& operator=(my_vector const& other)
+  vector& operator=(vector const& other)
   {
     if (this != &other)
     {
-      my_vector tmp = other;
+      vector tmp = other;
       swap(tmp);
     }
     return *this;
   }
 
-  my_vector& operator=(my_vector&& other)
+  vector& operator=(vector&& other)
   {
     if (this != &other)
     {
-      my_vector tmp = other;
+      vector tmp = other;
       swap(tmp);
     }
     return *this;
   }
 
-  ~my_vector()
+  ~vector()
   {
     clear();
     delete[] m_data;
@@ -77,7 +79,7 @@ public:
   T const& operator[](u32 idx) const
   {
     my_assert(idx < m_size);
-    return reinterpret_cast<T*>(m_data)[idx];
+    return reinterpret_cast<const T*>(m_data)[idx];
   }
 
   T& front()
@@ -89,7 +91,7 @@ public:
   T const& front() const
   {
     my_assert(m_size > 0);
-    return *reinterpret_cast<T*>(m_data);
+    return *reinterpret_cast<const T*>(m_data);
   }
 
   T& back()
@@ -101,7 +103,7 @@ public:
   T const& back() const
   {
     my_assert(m_size > 0);
-    return reinterpret_cast<T*>(m_data)[m_size - 1];
+    return reinterpret_cast<const T*>(m_data)[m_size - 1];
   }
 
   T* data()
@@ -111,7 +113,7 @@ public:
 
   T const* data() const
   {
-    return reinterpret_cast<T*>(m_data);
+    return reinterpret_cast<const T*>(m_data);
   }
 
   iterator begin()
@@ -121,12 +123,12 @@ public:
 
   const_iterator begin() const
   {
-    return reinterpret_cast<T*>(m_data);
+    return reinterpret_cast<const T*>(m_data);
   }
 
   const_iterator cbegin() const
   {
-    return reinterpret_cast<T*>(m_data);
+    return reinterpret_cast<const T*>(m_data);
   }
 
   iterator end()
@@ -136,12 +138,12 @@ public:
 
   const_iterator end() const
   {
-    return reinterpret_cast<T*>(m_data) + m_size;
+    return reinterpret_cast<const T*>(m_data) + m_size;
   }
 
   const_iterator cend() const
   {
-    return reinterpret_cast<T*>(m_data) + m_size;
+    return reinterpret_cast<const T*>(m_data) + m_size;
   }
 
   u32 size() const
@@ -154,12 +156,16 @@ public:
     if (new_capacity > m_capacity)
     {
       char* new_data = new char[sizeof(T) * new_capacity];
-      u32 sz = m_size;
-      for (u32 i = 0; i < sz; i++)
-        new(&reinterpret_cast<T*>(new_data)[i], my_operator_new) T{ static_cast<T&&>(reinterpret_cast<T*>(m_data)[i]) };
-      this->~my_vector();
+      u32 const new_size = m_size;
+      for (u32 i = 0; i < new_size; i++)
+      {
+        T* new_addr = &reinterpret_cast<T*>(new_data)[i];
+        T* old_addr = &reinterpret_cast<T*>(m_data)[i];
+        new(new_addr, placement_new) T{ util::move(*old_addr) };
+      }
+      this->~vector();
       m_data = new_data;
-      m_size = sz;
+      m_size = new_size;
       m_capacity = new_capacity;
     }
   }
@@ -184,7 +190,7 @@ public:
     {
       reserve((m_capacity + 1) * 2);
     }
-    new(m_data + m_size * sizeof(T), my_operator_new) T{value};
+    new(m_data + m_size * sizeof(T), placement_new) T{ value };
     m_size++;
   }
 
@@ -194,21 +200,21 @@ public:
     {
       reserve((m_capacity + 1) * 2);
     }
-    new(m_data + m_size * sizeof(T), my_operator_new) T{value};
+    new(m_data + m_size * sizeof(T), placement_new) T{ value };
     m_size++;
   }
 
   void pop_back()
   {
-    reinterpret_cast<T*>(m_data)[m_size - 1].~T();
+    back().~T();
     m_size--;
   }
 
-  void resize(u32 new_size, T const& value = T{})
+  void resize(u32 new_size, T const& value)
   {
-    if (new_size > m_size)
+    if (new_size > m_capacity)
     {
-      reserve((u32)(1.25 * (f64)(new_size)));
+      reserve((u32)((new_size * 125) / 100));
     }
     while (new_size > m_size)
     {
@@ -220,18 +226,11 @@ public:
     }
   }
 
-  void swap(my_vector& other)
+  void swap(vector& other)
   {
-    {
-      auto tmp = m_data;
-      m_data = other.m_data;
-      other.m_data = tmp;
-    }
-    {
-      auto tmp = m_size;
-      m_size = other.m_size;
-      other.m_size = tmp;
-    }
+    util::swap(m_data, other.m_data);
+    util::swap(m_size, other.m_size);
+    util::swap(m_capacity, other.m_capacity);
   }
 
 private:

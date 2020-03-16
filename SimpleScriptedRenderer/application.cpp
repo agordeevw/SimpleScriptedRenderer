@@ -12,12 +12,12 @@
 #include "imgui_impl_dx11.h"
 
 #include "application.hpp"
-#include "my_vector.hpp"
-#include "pool.hpp"
+#include "object_pool.hpp"
 #include "ring_buffer.hpp"
 #include "static_string.hpp"
 #include "static_vector.hpp"
 #include "shader_bytecodes.h"
+#include "vector.hpp"
 
 namespace console
 {
@@ -109,16 +109,15 @@ struct vertex
   glm::vec3 normal;
 };
 
-static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex> const& vertices, my_vector<u32> const& indices)
+static vertex_data create_vertex_data(d3d11_renderer& renderer, vector<vertex> const& vertices, vector<u32> const& indices)
 {
   vertex_data ret;
   const u32 vertex_array_size = vertices.size() * sizeof(vertices[0]);
   const u32 index_array_size = indices.size() * sizeof(indices[0]);
 
-  my_vector<char> buffer_data;
-  buffer_data.resize(vertex_array_size + index_array_size);
-  memcpy(buffer_data.data(), vertices.data(), vertex_array_size);
-  memcpy(buffer_data.data() + vertex_array_size, indices.data(), index_array_size);
+  char* buffer_data = new char[vertex_array_size + index_array_size];
+  memcpy(buffer_data, vertices.data(), vertex_array_size);
+  memcpy(buffer_data + vertex_array_size, indices.data(), index_array_size);
   ret.index_data_offset = vertex_array_size;
   ret.index_count = indices.size();
 
@@ -136,12 +135,12 @@ static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex
     HRESULT hr;
 
     D3D11_BUFFER_DESC desc = {};
-    desc.ByteWidth = buffer_data.size();
+    desc.ByteWidth = vertex_array_size + index_array_size;
     desc.Usage = D3D11_USAGE_IMMUTABLE;
     desc.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_INDEX_BUFFER;
 
     D3D11_SUBRESOURCE_DATA initial_data = {};
-    initial_data.pSysMem = buffer_data.data();
+    initial_data.pSysMem = buffer_data;
     hr = renderer.device->CreateBuffer(&desc, &initial_data, ret.data.ReleaseAndGetAddressOf());
     my_assert(SUCCEEDED(hr));
   }
@@ -149,14 +148,14 @@ static vertex_data create_vertex_data(d3d11_renderer& renderer, my_vector<vertex
   return ret;
 }
 
-static my_vector<vertex_data> g_vds = {};
+static vector<vertex_data> g_vds = {};
 
 static void create_vds(d3d11_renderer& renderer)
 {
   // Triangle
   {
-    my_vector<vertex> verts;
-    my_vector<u32> indices;
+    vector<vertex> verts;
+    vector<u32> indices;
 
     verts.push_back({ {-sqrt(3.0f) * 0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, +1.0f} });
     verts.push_back({ {+0.0f, +sqrt(3.0f) * 0.5f, 0.0f}, {0.0f, 0.0f, +1.0f} });
@@ -169,8 +168,8 @@ static void create_vds(d3d11_renderer& renderer)
   }
   // Cube
   {
-    my_vector<vertex> verts;
-    my_vector<u32> indices;
+    vector<vertex> verts;
+    vector<u32> indices;
 
     // left side
     verts.push_back({ {-0.5f, +0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f} });
@@ -245,7 +244,7 @@ static void create_vds(d3d11_renderer& renderer)
 
 static void destroy_vds()
 {
-  g_vds = my_vector<vertex_data>{};
+  g_vds = vector<vertex_data>{};
 }
 
 // Buffer filled once each frame.
@@ -519,8 +518,8 @@ struct scene
   glm::vec3 light_color = glm::vec3{ 1.0f, 1.0f, 1.0f };
   glm::vec3 ambient_color = glm::vec3{ 0.05f, 0.05f, 0.05f };
   camera cam = {};
-  my_vector<entity*> entities;
-  pool<entity> entity_pool = { 1024 * 1024 };
+  vector<entity*> entities;
+  object_pool<entity> entity_pool = { 1024 * 1024 };
 };
 
 static u32 g_num_visible = 0;
@@ -628,7 +627,7 @@ static void setup_scene(scene& sc)
         {
           return;
         }
-        sc.entities.push_back(sc.entity_pool.alloc());
+        sc.entities.push_back(sc.entity_pool.construct());
         entity* e = sc.entities.back();
         e->vd = &g_vds[1];
         e->tr.t.x = x;

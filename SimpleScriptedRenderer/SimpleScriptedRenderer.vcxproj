@@ -31,7 +31,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="my_assert.cpp" />
     <ClCompile Include="my_new.cpp" />
-    <ClCompile Include="pool.cpp" />
+    <ClCompile Include="object_pool.cpp" />
     <ClCompile Include="ring_buffer.cpp" />
     <ClCompile Include="static_string.cpp" />
   </ItemGroup>
@@ -49,8 +49,8 @@
     <ClInclude Include="input.hpp" />
     <ClInclude Include="my_assert.hpp" />
     <ClInclude Include="my_new.hpp" />
-    <ClInclude Include="my_vector.hpp" />
-    <ClInclude Include="pool.hpp" />
+    <ClInclude Include="vector.hpp" />
+    <ClInclude Include="object_pool.hpp" />
     <ClInclude Include="ring_buffer.hpp" />
     <ClInclude Include="shader_bytecodes.h" />
     <ClInclude Include="static_string.hpp" />

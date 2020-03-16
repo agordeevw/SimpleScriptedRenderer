@@ -35,7 +35,7 @@
     <ClCompile Include="d3d11_renderer.cpp" />
     <ClCompile Include="input.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="pool.cpp">
+    <ClCompile Include="object_pool.cpp">
       <Filter>my</Filter>
     </ClCompile>
   </ItemGroup>
@@ -70,9 +70,6 @@
     <ClInclude Include="my_new.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="my_vector.hpp">
-      <Filter>my</Filter>
-    </ClInclude>
     <ClInclude Include="ring_buffer.hpp">
       <Filter>my</Filter>
     </ClInclude>
@@ -89,10 +86,13 @@
     <ClInclude Include="static_vector.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="pool.hpp">
+    <ClInclude Include="util.hpp">
       <Filter>my</Filter>
     </ClInclude>
-    <ClInclude Include="util.hpp">
+    <ClInclude Include="vector.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
+    <ClInclude Include="object_pool.hpp">
       <Filter>my</Filter>
     </ClInclude>
   </ItemGroup>
