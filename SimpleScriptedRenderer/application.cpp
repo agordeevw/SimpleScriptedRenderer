@@ -19,6 +19,11 @@
 #include "shader_bytecodes.h"
 #include "vector.hpp"
 
+// TODO: invent scripting support. Think about structure of engine API.
+//  Store it in a table.
+
+// In-engine console.
+// Used to manipulate lua state and engine components via lua functions.
 namespace console
 {
 static constexpr u32 MAX_ENTRY_SIZE = 512;
@@ -94,6 +99,9 @@ static int imgui_input_callback(ImGuiInputTextCallbackData *data)
 }
 } // namespace console
 
+// All mesh-related data.
+// Vertex-index buffers for IA stage.
+// AABB for frustum culling.
 struct vertex_data
 {
   com_ptr<ID3D11Buffer> data;
@@ -103,11 +111,21 @@ struct vertex_data
   glm::vec3 aabb_extent;
 };
 
+// Vertex description.
+// Should include:
+//  Position, normal, tangent (binormal inferred). Common for many meshes.
+//  UV channels (texture coordinates, morph displacements). Optional.
+//  Blend weights + blend indices (for skeletal meshes). Required for skeletal meshes.
+// Preferably in separate buffers/separate parts of buffers.
 struct vertex
 {
   glm::vec3 position;
   glm::vec3 normal;
 };
+
+// TODO: Skeleton + skeleton pose.
+
+// BEGIN: Mesh data
 
 static vertex_data create_vertex_data(d3d11_renderer& renderer, vector<vertex> const& vertices, vector<u32> const& indices)
 {
@@ -247,7 +265,11 @@ static void destroy_vds()
   g_vds = vector<vertex_data>{};
 }
 
-// Buffer filled once each frame.
+// END: Mesh data
+
+// Scene constants buffer.
+// Probably should be separated for vertex/pixel shaders.
+// Filled once each frame.
 struct scene_constants
 {
   glm::mat4x4 world_to_screen;
@@ -259,7 +281,9 @@ struct scene_constants
   f32 _pad2;
 };
 
-// Buffer filled for each object/material?
+// Object constants buffer.
+// Probably should be separated for vertex/pixel shaders.
+// Should separate object data and material data.
 struct object_constants
 {
   glm::mat4x4 local_to_world;
@@ -268,14 +292,25 @@ struct object_constants
   f32 _pad0;
 };
 
+// TODO: optimize to minimize pipeline state changes.
+//  Mesh = list of submeshes + all that hubbub common for vertex data.
+//  Sort drawcalls by material.
+
 static scene_constants g_scene_constants;
 static object_constants g_object_constants;
 
+// Per material. Common part in shaders.
 static com_ptr<ID3D11VertexShader> g_vs;
+// Per material. Common part in shaders.
 static com_ptr<ID3D11PixelShader> g_ps;
+// U-uh... Per material? Meshes should conform...
 static com_ptr<ID3D11InputLayout> g_input_layout;
+// Read up on proper usage of constant buffers.
+// Because having one buffer per material smells less than great...
 static com_ptr<ID3D11Buffer> g_buf_scene_constants;
 static com_ptr<ID3D11Buffer> g_buf_object_constants;
+// How to manage these states by material?
+// Also, have default materials and states for only-in-engine parts.
 static com_ptr<ID3D11BlendState> g_blend_state;
 static com_ptr<ID3D11RasterizerState> g_rasterizer_state_solid;
 static com_ptr<ID3D11RasterizerState> g_rasterizer_state_wireframe;
@@ -371,6 +406,8 @@ static void destroy_common_pipeline_objects()
   g_vs.Reset();
 }
 
+// This is transform component.
+
 struct transform
 {
   glm::vec3 t = { 0.0f, 0.0f, 0.0f };
@@ -398,6 +435,8 @@ struct transform
     return m;
   }
 };
+
+// This is camera component.
 
 struct camera
 {
@@ -442,6 +481,8 @@ struct camera
   }
 };
 
+// Entity. Hello there. Root object has a pool of these.
+
 struct entity
 {
   static_string<32> name = {};
@@ -450,6 +491,8 @@ struct entity
   glm::vec3 color = { 0.5f, 0.8f, 0.5f };
   entity* parent = nullptr;
 };
+
+// Render system uses this for frustum culling.
 
 static bool aabb_view_frustum_intersection(const camera& cam, const vertex_data& vd, const transform& tr)
 {
@@ -512,6 +555,8 @@ static bool aabb_view_frustum_intersection(const camera& cam, const vertex_data&
   return true; // all points inside the frustum
 }
 
+// This is a root object.
+
 struct scene
 {
   glm::vec3 light_dir = glm::normalize(glm::vec3{ 1.0f, 1.0f, 1.0f });
@@ -521,6 +566,8 @@ struct scene
   vector<entity*> entities;
   object_pool<entity> entity_pool = { 1024 * 1024 };
 };
+
+// Render system uses this to render everything.
 
 static u32 g_num_visible = 0;
 
@@ -596,6 +643,8 @@ static void render_scene(d3d11_renderer& renderer, const scene& sc,
 
 static scene g_scene = {};
 
+// Exported function to manipulate scene. Make more of these to extend console capabilities.
+
 static int luaexport_set_light_dir(lua_State* lua)
 {
   glm::vec3 dir;
@@ -610,6 +659,9 @@ static int luaexport_set_light_dir(lua_State* lua)
   g_scene.light_dir = glm::normalize(dir);
   return 0;
 }
+
+// Function to set up default scene.
+// Redo in terms of components and entities.
 
 static void setup_scene(scene& sc)
 {
@@ -644,6 +696,7 @@ static void setup_scene(scene& sc)
   }
 }
 
+// Exported function to print to console.
 static int luaexport_print(lua_State* lua)
 {
   char text_buffer[console::MAX_ENTRY_SIZE];
@@ -667,6 +720,12 @@ static int luaexport_print(lua_State* lua)
   console::g_log.push_back({ text_buffer });
   return 0;
 }
+
+// Setup lua state.
+// Load necessary libraries (nothing more).
+// Scripting state. Table per entity? Not sure...
+// Engine table for engine API to be used in scripting components.
+// Scripting component = object + functions + reference to owner entity.
 
 static void setup_lua(lua_State** pLua)
 {
@@ -718,6 +777,12 @@ application::~application()
   renderer.shutdown();
 }
 
+// Try and make UI. How to handle mouse clicks?? Peek at ImGUI...
+
+// Input part.
+// Rewrite it using SDL events per frame.
+// Add timestamps for key events to track chords or something...
+
 static i32 g_mouse_dx = 0;
 static i32 g_mouse_dy = 0;
 static i32 g_vsync = 0;
@@ -767,9 +832,13 @@ void application::main_loop()
           g_mouse_dy = event.motion.yrel;
           break;
         }
+        case SDL_KEYDOWN: // fallthrough
+        case SDL_KEYUP:
+        break;
       }
     }
 
+    // Fixed update is used for systems that require fixed timesteps.
     int updates_left = 2;
     while (lag >= seconds_per_update)
     {
@@ -779,6 +848,8 @@ void application::main_loop()
       if (updates_left == 0) break;
     }
 
+    // Update is used for systems that must be updated every frame.
+    // How to make systems update once every several frames?
     update(delta_time);
 
     render();
@@ -819,6 +890,9 @@ void application::resize()
   renderer.resize_swapchain(width, height);
 }
 
+// Camera controls. May actually be a part of a script.
+// This one is for in-editor camera.
+
 static f32 g_mouse_angle_x = 0.0f;
 static f32 g_mouse_angle_y = 0.0f;
 static bool g_camera_controls_active = false;
@@ -827,6 +901,7 @@ static i32 g_selected_entity = (i32)-1;
 // Draw ImGUI here.
 void application::update(f64 delta_time)
 {
+  // In-editor camera.
   if (g_camera_controls_active)
   {
     glm::vec3 cam_forward = g_scene.cam.tr.r * glm::vec3{ 0.0f, 0.0f, -1.0f };
@@ -848,6 +923,7 @@ void application::update(f64 delta_time)
   g_scene.cam.tr.r = glm::angleAxis(g_mouse_angle_x, glm::vec3{ 0.0f, -1.0f, 0.0f })
     * glm::angleAxis(g_mouse_angle_y, glm::vec3{ -1.0f, 0.0f, 0.0f });
 
+  // In-editor key bindings.
   if (m_input.key_pressed(SDL_SCANCODE_GRAVE))
   {
     console::g_active = !console::g_active;
@@ -859,7 +935,7 @@ void application::update(f64 delta_time)
     SDL_SetRelativeMouseMode(g_camera_controls_active ? SDL_TRUE : SDL_FALSE);
   }
 
-  // ImGui
+  // In-editor UI.
   {
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplSDL2_NewFrame(m_window);
