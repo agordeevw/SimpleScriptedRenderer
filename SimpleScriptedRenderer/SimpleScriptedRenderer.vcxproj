@@ -46,6 +46,7 @@
     <ClInclude Include="external\imgui\imstb_rectpack.h" />
     <ClInclude Include="external\imgui\imstb_textedit.h" />
     <ClInclude Include="external\imgui\imstb_truetype.h" />
+    <ClInclude Include="hash_map.hpp" />
     <ClInclude Include="input.hpp" />
     <ClInclude Include="my_assert.hpp" />
     <ClInclude Include="my_new.hpp" />

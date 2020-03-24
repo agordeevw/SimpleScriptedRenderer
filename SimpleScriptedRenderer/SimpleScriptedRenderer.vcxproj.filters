@@ -95,6 +95,9 @@
     <ClInclude Include="object_pool.hpp">
       <Filter>my</Filter>
     </ClInclude>
+    <ClInclude Include="hash_map.hpp">
+      <Filter>my</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="external">
