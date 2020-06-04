@@ -13,6 +13,7 @@
 
 #include "application.hpp"
 #include "object_pool.hpp"
+#include "hash_map.hpp"
 #include "ring_buffer.hpp"
 #include "static_string.hpp"
 #include "static_vector.hpp"
@@ -98,6 +99,102 @@ static int imgui_input_callback(ImGuiInputTextCallbackData *data)
   return 0;
 }
 } // namespace console
+
+static int luaexport_print(lua_State* lua);
+
+struct script_system
+{
+  void init()
+  {
+    L = luaL_newstate();
+    my_assert(L);
+
+    init_lua_libs();
+    init_core();
+    init_native_components();
+  }
+
+  void shutdown()
+  {
+    if (L) lua_close(L);
+    L = nullptr;
+  }
+
+  void init_lua_libs()
+  {
+    const luaL_Reg loadedlibs[] = {
+      {"_G", luaopen_base},
+      {LUA_TABLIBNAME, luaopen_table},
+      {LUA_STRLIBNAME, luaopen_string},
+      {LUA_MATHLIBNAME, luaopen_math},
+      {LUA_UTF8LIBNAME, luaopen_utf8},
+      {LUA_DBLIBNAME, luaopen_debug},
+      {NULL, NULL}
+    };
+
+    for (const luaL_Reg* lib = loadedlibs; lib->func; lib++)
+    {
+      luaL_requiref(L, lib->name, lib->func, 1);
+      lua_pop(L, 1);
+    }
+
+    lua_pushglobaltable(L);
+    lua_pushcfunction(L, luaexport_print);
+    lua_setfield(L, -2, "print");
+    lua_pop(L, 1);
+  }
+
+  void init_core()
+  {
+    const char* class_definition =
+      "function Class(members)"
+      "  members = members or {}"
+      "  local mt = { __metatable = members, __index = members }"
+      "  if members.__create__ then"
+      "      mt.New = function(self, inst)"
+      "          return setmetatable(members.__create__(self, inst or {}), mt)"
+      "      end"
+      "  else"
+      "      mt.New = function(self, inst)"
+      "          return setmetatable(inst or {}, mt)"
+      "      end"
+      "  end"
+      "  if members.__destroy__ then"
+      "      mt.__gc = function(inst) members.__destroy__(mt, inst) end"
+      "  end"
+      "  return mt"
+      "end";
+    luaL_dostring(L, class_definition);
+
+    const char* script_definition =
+      "function Script(name, members)"
+      "  members.__create__ = function(self, inst)"
+      "      inst = inst or {}"
+      "      self.__instances__[inst] = inst"
+      "      return inst"
+      "  end"
+      "  members.__destroy__ = function(inst)"
+      "      getmetatable(inst).__instances__[inst] = nil"
+      "  end"
+      "  Engine.Scripts[name] = Class(members)"
+      "  Engine.Scripts[name].__instances__ = {}"
+      "  return Engine.Scripts[name]"
+      "end";
+    luaL_dostring(L, script_definition);
+
+    const char* engine_structure =
+      "Engine = {} "
+      "Engine.Scripts = {} ";
+    luaL_dostring(L, engine_structure);
+  }
+
+  void init_native_components()
+  {
+    // Transform
+  }
+
+  lua_State* L = nullptr;
+};
 
 // All mesh-related data.
 // Vertex-index buffers for IA stage.
