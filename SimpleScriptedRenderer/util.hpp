@@ -49,8 +49,7 @@ inline constexpr void swap(T& lhs, T& rhs)
 
 template <bool cond, class T = void>
 struct enable_if
-{
-};
+{};
 
 template <class T>
 struct enable_if<true, T>
@@ -70,12 +69,10 @@ struct true_type
 
 template <class T>
 struct is_integral : false_type
-{
-};
+{};
 
 #define IS_INTEGRAL_TRAIT(type) \
-template<> \
-struct is_integral<type> : true_type {}
+template <> struct is_integral<type> : true_type {}
 
 IS_INTEGRAL_TRAIT(i8);
 IS_INTEGRAL_TRAIT(i16);
@@ -86,15 +83,15 @@ IS_INTEGRAL_TRAIT(u16);
 IS_INTEGRAL_TRAIT(u32);
 IS_INTEGRAL_TRAIT(u64);
 
+#undef IS_INTEGRAL_TRAIT
+
 template <class T>
 struct is_pointer : false_type
-{
-};
+{};
 
 template <class T>
 struct is_pointer<T*> : true_type
-{
-};
+{};
 
 inline u32 wang_hash_32(u32 seed)
 {

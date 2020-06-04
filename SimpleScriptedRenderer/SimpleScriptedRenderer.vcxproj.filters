@@ -22,9 +22,6 @@
     <ClCompile Include="my_assert.cpp">
       <Filter>my</Filter>
     </ClCompile>
-    <ClCompile Include="my_new.cpp">
-      <Filter>my</Filter>
-    </ClCompile>
     <ClCompile Include="ring_buffer.cpp">
       <Filter>my</Filter>
     </ClCompile>

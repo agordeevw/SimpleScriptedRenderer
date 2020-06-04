@@ -19,8 +19,7 @@ public:
     using reference = kv_pair const&;
 
     const_iter(hash_map const* instance, u32 pos) : instance(instance), pos(pos)
-    {
-    }
+    {}
 
     reference operator*() const
     {
@@ -74,8 +73,7 @@ public:
     using reference = kv_pair & ;
 
     iter(hash_map* instance, u32 pos) : const_iter(const_cast<hash_map const*>(instance), pos)
-    {
-    }
+    {}
 
     reference operator*() const
     {
@@ -115,12 +113,12 @@ public:
   using const_iterator = const iter;
 
   hash_map()
-  {
-  }
+  {}
 
   hash_map(hash_map const& other)
   {
     alloc(other.m_capacity);
+    // keys are hashed again, may want to use hashes stored in other map
     for (auto it = other.begin(); it != other.end(); ++it)
       insert(t_key{ it->key }, t_value{ it->value });
   }
@@ -227,7 +225,7 @@ public:
       }
       realloc(new_capacity);
     }
-    insert_for_hash(hash_key(key), t_key{key}, t_value{val});
+    insert_for_hash(hash_key(key), t_key{ key }, t_value{ val });
   }
 
   bool erase(const t_key& key)

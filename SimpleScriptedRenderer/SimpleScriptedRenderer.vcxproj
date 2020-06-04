@@ -30,7 +30,6 @@
     <ClCompile Include="input.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="my_assert.cpp" />
-    <ClCompile Include="my_new.cpp" />
     <ClCompile Include="object_pool.cpp" />
     <ClCompile Include="ring_buffer.cpp" />
     <ClCompile Include="static_string.cpp" />
