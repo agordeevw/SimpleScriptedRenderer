@@ -163,11 +163,11 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\stb;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\imgui;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)\external\stb;$(ProjectDir)\external\SDL2\include;$(ProjectDir)\external\lua\include;$(ProjectDir)\external\imgui;$(ProjectDir)\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DisableSpecificWarnings>4127</DisableSpecificWarnings>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\lib;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)\external\SDL2\lib;$(ProjectDir)\external\lua\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>dxgi.lib;lua.lib;SDL2.lib;SDL2main.lib;d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -195,13 +195,13 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\stb;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\include;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\imgui;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)\external\stb;$(ProjectDir)\external\SDL2\include;$(ProjectDir)\external\lua\include;$(ProjectDir)\external\imgui;$(ProjectDir)\external\glm\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DisableSpecificWarnings>4127</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\SDL2\lib;C:\Users\karambaramba\source\repos\SimpleScriptedRenderer\SimpleScriptedRenderer\external\lua\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)\external\SDL2\lib;$(ProjectDir)\external\lua\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>dxgi.lib;lua.lib;SDL2.lib;SDL2main.lib;d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Windows</SubSystem>
     </Link>
